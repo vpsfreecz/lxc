@@ -1807,7 +1807,7 @@ static int lxc_spawn(struct lxc_handler *handler)
 	}
 	ret = lxc_netns_set_nsid(handler->nsfd[LXC_NS_NET]);
 	if (ret < 0)
-		SYSWARN("Failed to allocate new network namespace id");
+		INFO("Failed to allocate new network namespace id");
 	else
 		TRACE("Allocated new network namespace id");
 
