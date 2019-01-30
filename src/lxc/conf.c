@@ -1503,6 +1503,7 @@ static int lxc_setup_devpts_child(struct lxc_handler *handler)
 	char default_devpts_mntopts[256] = "gid=5,newinstance,ptmxmode=0666,mode=0620";
 	struct lxc_conf *conf = handler->conf;
 	int sock = handler->data_sock[0];
+	FILE *ptmx;
 
 	if (conf->pty_max <= 0)
 		return log_debug(0, "No new devpts instance will be mounted since no pts devices are requested");
@@ -1565,6 +1566,29 @@ static int lxc_setup_devpts_child(struct lxc_handler *handler)
 			return log_error_errno(-1, errno, "Failed to remove existing \"/dev/ptmx\" file");
 	} else {
 		DEBUG("Removed existing \"/dev/ptmx\" file");
+	}
+
+	/* Create /dev/ptmx device -- the device will work only on vpsAdminOS,
+	 * where devices created within user namespaces can actually be opened. */
+	ret = mknod("/dev/ptmx", S_IFCHR | 0666, makedev(5, 2));
+	if (ret == 0) {
+		DEBUG("Created \"/dev/ptmx\" device file");
+
+		if (ptmx = fopen("/dev/ptmx", "r")) {
+			DEBUG("Using created device \"/dev/ptmx\"");
+			fclose(ptmx);
+			chmod("/dev/ptmx", 00666);
+			return 0;
+		} else {
+			DEBUG("Created device file \"/dev/ptmx\" cannot be accessed, "
+				"falling back to bind-mount");
+
+			ret = remove("/dev/ptmx");
+			if (ret < 0)
+				return log_error_errno(-1, errno, "Failed to remove created device \"/dev/ptmx\"");
+			else
+				DEBUG("Removed unusable device \"/dev/ptmx\"");
+		}
 	}
 
 	/* Create dummy /dev/ptmx file as bind mountpoint for /dev/pts/ptmx. */
