@@ -2940,7 +2940,7 @@ int lxc_find_gateway_addresses(struct lxc_handler *handler)
 
 #ifdef IN_LIBLXC
 
-#define LXC_USERNIC_PATH LIBEXECDIR "/lxc/lxc-user-nic"
+#define LXC_USERNIC_PATH "/run/wrappers/bin/lxc-user-nic"
 static int lxc_create_network_unpriv_exec(const char *lxcpath,
 					  const char *lxcname,
 					  struct lxc_netdev *netdev, pid_t pid,
