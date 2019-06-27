@@ -1604,7 +1604,7 @@ static int proc_pidfd_open(pid_t pid)
 
 	/* Test whether we can send signals. */
 	if (lxc_raw_pidfd_send_signal(proc_pidfd, 0, NULL, 0)) {
-		SYSERROR("Failed to send signal through pidfd");
+		INFO("Failed to send signal through pidfd");
 		return -1;
 	}
 
