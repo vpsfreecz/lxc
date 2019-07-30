@@ -398,6 +398,7 @@ struct lxc_conf {
 	/* sysctls */
 	struct lxc_list sysctls;
 
+	bool syslogns;
 	/* procs */
 	struct lxc_list procs;
 

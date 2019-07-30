@@ -18,6 +18,7 @@ struct lxc_proc_context_info {
 	signed long personality;
 	unsigned long long capability_mask;
 	int ns_inherited;
+	int ns_syslog_fd;
 	int ns_fd[LXC_NS_MAX];
 	struct lsm_ops *lsm_ops;
 };
