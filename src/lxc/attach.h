@@ -39,6 +39,7 @@ struct lxc_proc_context_info {
 	unsigned long long capability_mask;
 	int ns_inherited;
 	int ns_fd[LXC_NS_MAX];
+	int ns_syslog_fd;
 };
 
 extern int lxc_attach(struct lxc_container *container,

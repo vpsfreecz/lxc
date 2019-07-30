@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/klog.h>
 #include <sys/mount.h>
 #include <sys/param.h>
 #include <sys/prctl.h>
@@ -119,6 +120,7 @@ static struct lxc_proc_context_info *lxc_proc_get_context_info(pid_t pid)
 	info->lsm_label = lsm_process_label_get(pid);
 	info->ns_inherited = 0;
 	memset(info->ns_fd, -1, sizeof(int) * LXC_NS_MAX);
+	info->ns_syslog_fd = -1;
 
 	return info;
 }
@@ -1018,6 +1020,9 @@ int lxc_attach(struct lxc_container *container, lxc_attach_exec_t exec_function,
 	struct lxc_conf *conf;
 	char *name, *lxcpath;
 	struct attach_clone_payload payload = {0};
+	struct stat syslog_ns_init_pid, syslog_ns_pid;
+	int init_syslog_ns_fd = -1;
+	int pid_syslog_ns_fd = -1;
 
 	ret = access("/proc/self/ns", X_OK);
 	if (ret) {
@@ -1389,6 +1394,20 @@ int lxc_attach(struct lxc_container *container, lxc_attach_exec_t exec_function,
 	/* Attach now, create another subprocess later, since pid namespaces
 	 * only really affect the children of the current process.
 	 */
+	if (conf->syslogns) {
+		init_syslog_ns_fd = lxc_preserve_ns(init_pid, "syslog");
+		if (init_syslog_ns_fd < 0) {
+			ERROR("Failed to preserve syslog_ns");
+			return -1;
+		}
+		klogctl(12, "", 0);
+		ret = setns(init_syslog_ns_fd, 0);
+		if (ret != 0) {
+			SYSERROR("Failed to set syslog_ns");
+			return -1;
+		}
+	}
+
 	ret = lxc_attach_to_ns(init_pid, init_ctx);
 	if (ret < 0) {
 		ERROR("Failed to enter namespaces");
