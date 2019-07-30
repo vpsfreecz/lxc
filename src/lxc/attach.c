@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/klog.h>
 #include <sys/mount.h>
 #include <sys/param.h>
 #include <sys/prctl.h>
@@ -102,6 +103,7 @@ struct attach_context {
 	int ns_fd[LXC_NS_MAX];
 	struct lsm_ops *lsm_ops;
 	__u64 core_sched_cookie;
+	int ns_syslog_fd;
 };
 
 static pid_t pidfd_get_pid(int dfd_init_pid, int pidfd)
@@ -195,6 +197,8 @@ static struct attach_context *alloc_attach_context(void)
 
 	for (lxc_namespace_t i = 0; i < LXC_NS_MAX; i++)
 		ctx->ns_fd[i] = -EBADF;
+	
+	ctx->ns_syslog_fd = -EBADF;
 
 	return ctx;
 }
@@ -1443,6 +1447,9 @@ int lxc_attach(struct lxc_container *container, lxc_attach_exec_t exec_function,
 	struct attach_context *ctx;
 	struct lxc_terminal terminal;
 	struct lxc_conf *conf;
+	struct stat syslog_ns_init_pid, syslog_ns_pid;
+	int init_syslog_ns_fd = -1;
+	int pid_syslog_ns_fd = -1;
 
 	if (!container)
 		return ret_errno(EINVAL);
@@ -1585,6 +1592,24 @@ int lxc_attach(struct lxc_container *container, lxc_attach_exec_t exec_function,
 		 * anything sensitive. That especially means things such as
 		 * open file descriptors!
 		 */
+		if (conf->syslogns) {
+			init_syslog_ns_fd = lxc_preserve_ns(ctx->init_pid, "syslog");
+			if (init_syslog_ns_fd < 0) {
+				ERROR("Failed to preserve syslog_ns");
+				shutdown(ipc_sockets[1], SHUT_RDWR);
+				put_attach_context(ctx);
+				_exit(EXIT_FAILURE);
+			}
+			klogctl(12, "", 0);
+			ret = setns(init_syslog_ns_fd, 0);
+			if (ret != 0) {
+				SYSERROR("Failed to set syslog_ns");
+				shutdown(ipc_sockets[1], SHUT_RDWR);
+				put_attach_context(ctx);
+				_exit(EXIT_FAILURE);
+			}
+		}
+
 		ret = attach_namespaces(ctx, options);
 		if (ret < 0) {
 			ERROR("Failed to enter namespaces");
