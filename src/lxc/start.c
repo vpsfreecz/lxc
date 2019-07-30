@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
+#include <sys/klog.h>
 #include <sys/mount.h>
 #include <sys/param.h>
 #include <sys/prctl.h>
@@ -1034,6 +1035,7 @@ static int do_start(void *data)
 	__lxc_unused __do_close int data_sock0 = handler->data_sock[0],
 					   data_sock1 = handler->data_sock[1];
 	__do_close int devnull_fd = -EBADF, status_fd = -EBADF;
+	struct lxc_conf *conf = handler->conf;
 	int ret;
 	uid_t new_uid;
 	gid_t new_gid;
@@ -1079,6 +1081,7 @@ static int do_start(void *data)
 	if (ret < 0)
 		goto out_warn_father;
 
+
 	/* Unshare CLONE_NEWNET after CLONE_NEWUSER. See
 	 * https://github.com/lxc/lxd/issues/1978.
 	 */
@@ -1089,6 +1092,16 @@ static int do_start(void *data)
 			goto out_warn_father;
 		}
 		INFO("Unshared CLONE_NEWNET");
+		if (conf->syslogns) {
+			INFO("Unshare of syslog namespace requested");
+			klogctl(11 , "", 0);
+			ret = unshare(0);
+			if (ret < 0) {
+				SYSERROR("Failed to unshare syslog_ns");
+				goto out_warn_father;
+			}
+			INFO("Unshared syslog namespace");
+		}
 	}
 
 	/* Tell the parent task it can begin to configure the container and wait
