@@ -944,6 +944,12 @@ void lxc_end(struct lxc_handler *handler)
 	if (ret < 0)
 		ERROR("Failed to run \"lxc.hook.stop\" hook");
 
+	/*
+	 * vpsAdminOS delegates reboots to osctld through the post-stop hook.
+	 * Clear LXC's internal request without changing LXC_TARGET=reboot.
+	 */
+	handler->conf->reboot = REBOOT_NONE;
+
 	handler->lsm_ops->cleanup(handler->lsm_ops, handler->conf, handler->lxcpath);
 
 	if (cgroup_ops) {
