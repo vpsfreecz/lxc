@@ -1007,6 +1007,12 @@ void lxc_fini(const char *name, struct lxc_handler *handler)
 	if (ret < 0)
 		ERROR("Failed to run \"lxc.hook.stop\" hook");
 
+	/* On vpsAdminOS, we don't want LXC to handle reboots. Containers are
+	 * rebooted using osctld, which is called by the post-stop hook
+	 * with LXC_TARGET=reboot
+	 */
+	handler->conf->reboot = REBOOT_NONE;
+
 	while (namespace_count--)
 		free(namespaces[namespace_count]);
 
