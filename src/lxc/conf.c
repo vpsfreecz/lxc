@@ -1607,6 +1607,10 @@ static int lxc_pivot_root(const struct lxc_rootfs *rootfs)
 	if (ret < 0)
 		return log_error_errno(-errno, errno, "Failed to re-enter new root directory \"%s\"", rootfs->mount);
 
+	ret = mount(NULL, "/", NULL, MS_REC | MS_SHARED, NULL);
+	if (ret < 0)
+		return log_error_errno(-1, errno, "Failed to remount \"/\" to make it rshared");
+
 	TRACE("Changed into new rootfs \"%s\"", rootfs->mount);
 	return 0;
 }
