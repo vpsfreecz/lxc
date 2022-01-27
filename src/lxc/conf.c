@@ -1607,6 +1607,19 @@ static int lxc_pivot_root(const struct lxc_rootfs *rootfs)
 	if (ret < 0)
 		return log_error_errno(-errno, errno, "Failed to re-enter new root directory \"%s\"", rootfs->mount);
 
+	/*
+	 * On vpsAdminOS, remount / as shared, but keep /dev as slave -- this is
+	 * because of /dev/.osctl-mount-helper used to propagate mounts into the container,
+	 * but mount --move does not work inside shared mounts.
+	 */
+	ret = mount(NULL, "/", NULL, MS_REC | MS_SHARED, NULL);
+	if (ret < 0)
+		return log_error_errno(-1, errno, "Failed to remount \"/\" to make it rshared");
+
+	ret = mount(NULL, "/dev", NULL, MS_REC | MS_SLAVE, NULL);
+	if (ret < 0)
+		return log_error_errno(-1, errno, "Failed to remount \"/dev\" to make it rslave");
+
 	TRACE("Changed into new rootfs \"%s\"", rootfs->mount);
 	return 0;
 }
