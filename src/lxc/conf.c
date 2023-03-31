@@ -1452,6 +1452,15 @@ static int lxc_pivot_root(const struct lxc_rootfs *rootfs)
 	if (ret < 0)
 		return log_error_errno(-errno, errno, "Failed to turn new root mount tree into shared mount tree");
 
+	/*
+	 * On vpsAdminOS, keep /dev as slave -- this is because of /dev/.osctl-mount-helper
+	 * used to propagate mounts into the container. mount --move does not work inside
+	 * shared mounts.
+	 */
+	ret = mount(NULL, "./dev", NULL, MS_SLAVE | MS_REC, NULL);
+	if (ret < 0)
+		return log_error_errno(-1, errno, "Failed to remount \"/dev\" to make it rslave");
+
 	TRACE("Changed into new rootfs \"%s\"", rootfs->mount);
 	return 0;
 }
