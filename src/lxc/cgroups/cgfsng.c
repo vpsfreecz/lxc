@@ -7,9 +7,10 @@
  * or how you had them mounted, and deduce the most usable mount for
  * each controller.
  *
- * This new implementation assumes that cgroup filesystems are mounted
- * under /sys/fs/cgroup/clist where clist is either the controller, or
- * a comma-separated list of controllers.
+ * This new implementation assumes that host cgroup filesystems are mounted
+ * below DEFAULT_CGROUP_HOST_MOUNTPOINT, with clist either the controller or
+ * a comma-separated list of controllers. The container ABI remains mounted
+ * below DEFAULT_CGROUP_CONTAINER_MOUNTPOINT.
  */
 
 #include "config.h"
@@ -1586,7 +1587,8 @@ static int unpriv_systemd_create_scope(struct cgroup_ops *ops, struct lxc_conf *
 			conf->cgroup_meta.systemd_scope = get_current_unified_cgroup();
 			if (!conf->cgroup_meta.systemd_scope)
 				return log_trace(SYSTEMD_SCOPE_FAILED, "Out of memory");
-			fs_cg_path = must_make_path("/sys/fs/cgroup", conf->cgroup_meta.systemd_scope, NULL);
+			fs_cg_path = must_make_path(DEFAULT_CGROUP_HOST_MOUNTPOINT,
+					    conf->cgroup_meta.systemd_scope, NULL);
 			if (!move_and_delegate_unified(fs_cg_path))
 				return log_error(SYSTEMD_SCOPE_FAILED, "Failed delegating the controllers to our cgroup");
 			return log_trace(SYSTEMD_SCOPE_SUCCESS, "Created systemd scope %s", full_scope_name);
@@ -2053,12 +2055,12 @@ __cgfsng_ops static void cgfsng_finalize(struct cgroup_ops *ops)
 
 	/*
 	 * The checking for freezer support should obviously be done at cgroup
-	 * initialization time but that doesn't work reliable. The freezer
+	 * initialization time but that doesn't work reliably. The freezer
 	 * controller has been demoted (rightly so) to a simple file located in
 	 * each non-root cgroup. At the time when the container is created we
-	 * might still be located in /sys/fs/cgroup and so checking for
+	 * might still be located in the host cgroup root and so checking for
 	 * cgroup.freeze won't tell us anything because this file doesn't exist
-	 * in the root cgroup. We could then iterate through /sys/fs/cgroup and
+	 * in the root cgroup. We could then iterate through the host hierarchy and
 	 * find an already existing cgroup and then check within that cgroup
 	 * for the existence of cgroup.freeze but that will only work on
 	 * systemd based hosts. Other init systems might not manage cgroups and
@@ -2210,7 +2212,8 @@ static int __cgroupfs_mount(int cgroup_automount_type, struct hierarchy *h,
 		if (ret)
 			return log_error_errno(-EINVAL, EINVAL, "Unsupported mount properties specified");
 
-		target = must_make_path(rootfs_mnt, DEFAULT_CGROUP_MOUNTPOINT, hierarchy_mnt, NULL);
+		target = must_make_path(rootfs_mnt, DEFAULT_CGROUP_CONTAINER_MOUNTPOINT,
+					hierarchy_mnt, NULL);
 		ret = safe_mount(NULL, target, fstype, old_flags, controllers, rootfs_mnt);
 	}
 	if (ret < 0)
@@ -2341,11 +2344,13 @@ __cgfsng_ops static bool cgfsng_mount(struct cgroup_ops *ops,
 		if (!ops->unified)
 			return log_error_errno(false, EINVAL, "No unified cgroup hierarchy mounted on the host");
 
-		dfd_mnt_unified = open_at(rootfs->dfd_mnt, DEFAULT_CGROUP_MOUNTPOINT_RELATIVE,
+		dfd_mnt_unified = open_at(rootfs->dfd_mnt,
+					  DEFAULT_CGROUP_CONTAINER_MOUNTPOINT_RELATIVE,
 					  PROTECT_OPATH_DIRECTORY, PROTECT_LOOKUP_BENEATH_XDEV, 0);
 		if (dfd_mnt_unified < 0)
 			return syserror_ret(false, "Failed to open %d(%s)",
-					    rootfs->dfd_mnt, DEFAULT_CGROUP_MOUNTPOINT_RELATIVE);
+					    rootfs->dfd_mnt,
+					    DEFAULT_CGROUP_CONTAINER_MOUNTPOINT_RELATIVE);
 		/*
 		 * If cgroup namespaces are supported but the container will
 		 * not have CAP_SYS_ADMIN after it has started we need to mount
@@ -2404,9 +2409,9 @@ __cgfsng_ops static bool cgfsng_mount(struct cgroup_ops *ops,
 	}
 
 	/*
-	 * Mount a tmpfs over DEFAULT_CGROUP_MOUNTPOINT. Note that we're
+	 * Mount a tmpfs over DEFAULT_CGROUP_CONTAINER_MOUNTPOINT. Note that we're
 	 * relying on RESOLVE_BENEATH so we need to skip the leading "/" in the
-	 * DEFAULT_CGROUP_MOUNTPOINT define.
+	 * DEFAULT_CGROUP_CONTAINER_MOUNTPOINT define.
 	 */
 	if (can_use_mount_api()) {
 		fd_fs = fs_prepare("tmpfs", -EBADF, "", 0, 0);
@@ -2421,25 +2426,29 @@ __cgfsng_ops static bool cgfsng_mount(struct cgroup_ops *ops,
 		if (ret < 0)
 			return log_error_errno(false, errno, "Failed to mount tmpfs onto %d(dev)", fd_fs);
 
-		ret = fs_attach(fd_fs, rootfs->dfd_mnt, DEFAULT_CGROUP_MOUNTPOINT_RELATIVE,
+		ret = fs_attach(fd_fs, rootfs->dfd_mnt,
+				DEFAULT_CGROUP_CONTAINER_MOUNTPOINT_RELATIVE,
 				PROTECT_OPATH_DIRECTORY, PROTECT_LOOKUP_BENEATH_XDEV,
 				MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV |
 				MOUNT_ATTR_NOEXEC | MOUNT_ATTR_RELATIME);
 	} else {
-		cgroup_root = must_make_path(rootfs_mnt, DEFAULT_CGROUP_MOUNTPOINT, NULL);
+		cgroup_root = must_make_path(rootfs_mnt,
+					     DEFAULT_CGROUP_CONTAINER_MOUNTPOINT, NULL);
 		ret = safe_mount(NULL, cgroup_root, "tmpfs",
 				 MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_RELATIME,
 				 "size=10240k,mode=755", rootfs_mnt);
 	}
 	if (ret < 0)
 		return log_error_errno(false, errno, "Failed to mount tmpfs on %s",
-				       DEFAULT_CGROUP_MOUNTPOINT_RELATIVE);
+				       DEFAULT_CGROUP_CONTAINER_MOUNTPOINT_RELATIVE);
 
-	dfd_mnt_tmpfs = open_at(rootfs->dfd_mnt, DEFAULT_CGROUP_MOUNTPOINT_RELATIVE,
+	dfd_mnt_tmpfs = open_at(rootfs->dfd_mnt,
+				DEFAULT_CGROUP_CONTAINER_MOUNTPOINT_RELATIVE,
 				PROTECT_OPATH_DIRECTORY, PROTECT_LOOKUP_BENEATH_XDEV, 0);
 	if (dfd_mnt_tmpfs < 0)
 		return syserror_ret(false, "Failed to open %d(%s)",
-				    rootfs->dfd_mnt, DEFAULT_CGROUP_MOUNTPOINT_RELATIVE);
+				    rootfs->dfd_mnt,
+				    DEFAULT_CGROUP_CONTAINER_MOUNTPOINT_RELATIVE);
 
 	for (int i = 0; ops->hierarchies[i]; i++) {
 		__do_free char *hierarchy_mnt = NULL, *path2 = NULL;
@@ -2473,7 +2482,9 @@ __cgfsng_ops static bool cgfsng_mount(struct cgroup_ops *ops,
 			continue;
 
 		if (!cgroup_root)
-			cgroup_root = must_make_path(rootfs_mnt, DEFAULT_CGROUP_MOUNTPOINT, NULL);
+			cgroup_root = must_make_path(rootfs_mnt,
+						     DEFAULT_CGROUP_CONTAINER_MOUNTPOINT,
+						     NULL);
 
 		hierarchy_mnt = must_make_path(cgroup_root, h->at_mnt, NULL);
 		path2 = must_make_path(hierarchy_mnt, h->at_base,
@@ -2720,9 +2731,9 @@ static const char *cgfsng_get_cgroup_do(struct cgroup_ops *ops,
 		return NULL;
 
 	len = strlen(h->at_mnt);
-	if (!strnequal(h->at_mnt, DEFAULT_CGROUP_MOUNTPOINT,
-		       STRLITERALLEN(DEFAULT_CGROUP_MOUNTPOINT))) {
-		path += STRLITERALLEN(DEFAULT_CGROUP_MOUNTPOINT);
+	if (!strnequal(h->at_mnt, DEFAULT_CGROUP_HOST_MOUNTPOINT,
+		       STRLITERALLEN(DEFAULT_CGROUP_HOST_MOUNTPOINT))) {
+		path += STRLITERALLEN(DEFAULT_CGROUP_HOST_MOUNTPOINT);
 		path += strspn(path, "/");
 	}
 	return path += len;
@@ -3672,7 +3683,12 @@ __cgfsng_ops static bool cgfsng_monitor_delegate_controllers(struct cgroup_ops *
 	if (!ops)
 		return ret_set_errno(false, ENOENT);
 
-	return __cgfsng_delegate_controllers(ops, ops->monitor_cgroup);
+	/*
+	 * osctld owns the host hierarchy and delegates controllers at the
+	 * container payload boundary. Do not let monitor setup rewrite
+	 * host-owned ancestors; payload controller delegation remains intact.
+	 */
+	return true;
 }
 
 __cgfsng_ops static bool cgfsng_payload_delegate_controllers(struct cgroup_ops *ops)
@@ -4109,10 +4125,10 @@ static int initialize_cgroups(struct cgroup_ops *ops, struct lxc_conf *conf)
 	 * have their hierarchy available in different locations I strongly
 	 * suggest bind-mounts.
 	 */
-	dfd = open_at(-EBADF, DEFAULT_CGROUP_MOUNTPOINT,
+	dfd = open_at(-EBADF, DEFAULT_CGROUP_HOST_MOUNTPOINT,
 			PROTECT_OPATH_DIRECTORY, PROTECT_LOOKUP_ABSOLUTE_XDEV, 0);
 	if (dfd < 0)
-		return syserror("Failed to open " DEFAULT_CGROUP_MOUNTPOINT);
+		return syserror("Failed to open " DEFAULT_CGROUP_HOST_MOUNTPOINT);
 
 	controllers_use = lxc_global_config_value("lxc.cgroup.use");
 	if (controllers_use) {

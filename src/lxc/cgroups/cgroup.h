@@ -16,8 +16,9 @@
 #include "macro.h"
 #include "memory_utils.h"
 
-#define DEFAULT_CGROUP_MOUNTPOINT_RELATIVE "sys/fs/cgroup"
-#define DEFAULT_CGROUP_MOUNTPOINT "/sys/fs/cgroup"
+#define DEFAULT_CGROUP_HOST_MOUNTPOINT "/run/osctl/cgroup"
+#define DEFAULT_CGROUP_CONTAINER_MOUNTPOINT_RELATIVE "sys/fs/cgroup"
+#define DEFAULT_CGROUP_CONTAINER_MOUNTPOINT "/sys/fs/cgroup"
 #define DEFAULT_PAYLOAD_CGROUP_PREFIX "lxc.payload."
 #define DEFAULT_MONITOR_CGROUP_PREFIX "lxc.monitor."
 #define DEFAULT_PAYLOAD_CGROUP "payload"
@@ -107,12 +108,12 @@ struct cgroup_ctx {
  * @at_mnt
  * - The at_mnt we will use.
  * - legacy hierarchy
- *   It will be either /sys/fs/cgroup/controller or
- *   /sys/fs/cgroup/controllerlist.
+ *   It will be either controller or controllerlist below the host cgroup
+ *   control mountpoint.
  * - unified hierarchy
- *   It will either be /sys/fs/cgroup or /sys/fs/cgroup/<mountpoint-name>
- *   depending on whether this is a hybrid cgroup layout (mix of legacy and
- *   unified hierarchies) or a pure unified cgroup layout.
+ *   It will either be empty or the mountpoint name below the host cgroup
+ *   control mountpoint, depending on whether this is a pure unified cgroup
+ *   layout or a hybrid layout (mix of legacy and unified hierarchies).
  *
  * @at_base
  * - The cgroup under which the container cgroup path
@@ -306,11 +307,11 @@ static inline int cgroup_unified_fd(const struct cgroup_ops *ops)
 	return ops->unified->dfd_con;
 }
 
-#define make_cgroup_path(__hierarchy, __first, ...)                    \
-	({                                                             \
-		const struct hierarchy *__h = __hierarchy;             \
-		must_make_path(DEFAULT_CGROUP_MOUNTPOINT, __h->at_mnt, \
-			       __first, __VA_ARGS__);                  \
+#define make_cgroup_path(__hierarchy, __first, ...)                         \
+	({                                                                   \
+		const struct hierarchy *__h = __hierarchy;                     \
+		must_make_path(DEFAULT_CGROUP_HOST_MOUNTPOINT, __h->at_mnt,    \
+			       __first, __VA_ARGS__);                            \
 	})
 
 static inline void put_cgroup_ctx(struct cgroup_ctx *ctx)

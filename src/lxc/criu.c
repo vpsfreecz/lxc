@@ -397,9 +397,11 @@ static int exec_criu(struct cgroup_ops *cgroup_ops, struct lxc_conf *conf,
 			return log_error_errno(-ENOENT, ENOENT, "Failed getting freezer path");
 
 		if (pure_unified_layout(cgroup_ops))
-			ret = strnprintf(log, sizeof(log), "/sys/fs/cgroup/%s", freezer_relative);
+			ret = strnprintf(log, sizeof(log), "%s/%s",
+					  DEFAULT_CGROUP_HOST_MOUNTPOINT, freezer_relative);
 		else
-			ret = strnprintf(log, sizeof(log), "/sys/fs/cgroup/freezer/%s", freezer_relative);
+			ret = strnprintf(log, sizeof(log), "%s/freezer/%s",
+					  DEFAULT_CGROUP_HOST_MOUNTPOINT, freezer_relative);
 		if (ret < 0)
 			return log_error_errno(-EIO, EIO, "Failed to freezer cgroup entry");
 
