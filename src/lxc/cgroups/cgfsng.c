@@ -3362,7 +3362,11 @@ __cgfsng_ops static bool cgfsng_monitor_delegate_controllers(struct cgroup_ops *
 	if (!ops)
 		return ret_set_errno(false, ENOENT);
 
-	return __cgfsng_delegate_controllers(ops, ops->monitor_cgroup);
+	/*
+	 * Do not delegate controllers to the monitor cgroup, it prints a warning
+	 * to the console and I don't see why it is done at all.
+	 */
+	return true;
 }
 
 __cgfsng_ops static bool cgfsng_payload_delegate_controllers(struct cgroup_ops *ops)
