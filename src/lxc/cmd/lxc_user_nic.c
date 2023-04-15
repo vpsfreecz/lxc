@@ -1167,8 +1167,8 @@ int main(int argc, char *argv[])
 		struct alloted_s *it;
 		bool found_nicname = false;
 
-		if (!is_ovs_bridge(args.link)) {
-			usernic_error("%s", "Deletion of non ovs type network devices not implemented\n");
+		if (!strequal(args.type, "veth")) {
+			usernic_error("%s", "Deletion of non veth type network devices not implemented\n");
 			close(fd);
 			free_alloted(&alloted);
 			_exit(EXIT_FAILURE);
@@ -1191,10 +1191,18 @@ int main(int argc, char *argv[])
 			_exit(EXIT_FAILURE);
 		}
 
-		ret = lxc_ovs_delete_port(args.link, args.veth_name);
-		if (ret < 0) {
-			usernic_error("Failed to remove port \"%s\" from openvswitch bridge \"%s\"", args.veth_name, args.link);
-			_exit(EXIT_FAILURE);
+		if (!strequal(args.link, "none") && is_ovs_bridge(args.link)) {
+			ret = lxc_ovs_delete_port(args.link, args.veth_name);
+			if (ret < 0) {
+				usernic_error("Failed to remove port \"%s\" from openvswitch bridge \"%s\"", args.veth_name, args.link);
+				_exit(EXIT_FAILURE);
+			}
+		} else {
+			ret = lxc_netdev_delete_by_name(args.veth_name);
+			if (ret < 0) {
+				usernic_error("Failed to remove veth \"%s\"", args.veth_name);
+				_exit(EXIT_FAILURE);
+			}
 		}
 
 		_exit(EXIT_SUCCESS);

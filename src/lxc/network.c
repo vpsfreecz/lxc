@@ -3083,6 +3083,8 @@ static int lxc_delete_network_unpriv_exec(const char *lxcpath, const char *lxcna
 
 	if (child == 0) {
 		char *hostveth;
+		char netdev_link[IFNAMSIZ];
+		size_t retlen;
 
 		close(pipefd[0]);
 
@@ -3104,15 +3106,20 @@ static int lxc_delete_network_unpriv_exec(const char *lxcpath, const char *lxcna
 			_exit(EXIT_FAILURE);
 		}
 
-		if (is_empty_string(netdev->link)) {
-			SYSERROR("Network link for network device \"%s\" is missing", netdev->priv.veth_attr.veth1);
+		if (!is_empty_string(netdev->link))
+			retlen = strlcpy(netdev_link, netdev->link, IFNAMSIZ);
+		else
+			retlen = strlcpy(netdev_link, "none", IFNAMSIZ);
+
+		if (retlen >= IFNAMSIZ) {
+			SYSERROR("Invalid network device name");
 			_exit(EXIT_FAILURE);
 		}
 
 		INFO("Execing lxc-user-nic delete %s %s %s veth %s %s", lxcpath,
-		     lxcname, netns_path, netdev->link, hostveth);
+		     lxcname, netns_path, netdev_link, hostveth);
 		execlp(LXC_USERNIC_PATH, LXC_USERNIC_PATH, "delete", lxcpath,
-		       lxcname, netns_path, "veth", netdev->link, hostveth,
+		       lxcname, netns_path, "veth", netdev_link, hostveth,
 		       (char *)NULL);
 		SYSERROR("Failed to exec lxc-user-nic.");
 		_exit(EXIT_FAILURE);
@@ -3165,6 +3172,7 @@ static bool lxc_delete_network_unpriv(struct lxc_handler *handler)
 
 	list_for_each_entry(netdev, &handler->conf->netdevs, head) {
 		char *hostveth = NULL;
+		bool is_ovs;
 
 		/* We can only delete devices whose ifindex we have. If we don't
 		 * have the index it means that we didn't create it.
@@ -3196,8 +3204,10 @@ static bool lxc_delete_network_unpriv(struct lxc_handler *handler)
 		if (netdev->type != LXC_NET_VETH)
 			goto clear_ifindices;
 
-		if (is_empty_string(netdev->link) || !is_ovs_bridge(netdev->link))
-			goto clear_ifindices;
+		if (is_empty_string(netdev->link))
+			is_ovs = false;
+		else
+			is_ovs = is_ovs_bridge(netdev->link);
 
 		if (!is_empty_string(netdev->priv.veth_attr.pair))
 			hostveth = netdev->priv.veth_attr.pair;
@@ -3210,10 +3220,16 @@ static bool lxc_delete_network_unpriv(struct lxc_handler *handler)
 						     handler->name, netdev,
 						     netns_path);
 		if (ret < 0) {
-			WARN("Failed to remove port \"%s\" from openvswitch bridge \"%s\"", hostveth, netdev->link);
+			if (is_ovs)
+				WARN("Failed to remove port \"%s\" from openvswitch bridge \"%s\"", hostveth, netdev->link);
+			else
+				WARN("Failed to remove veth \"%s\"", hostveth);
 			goto clear_ifindices;
+		} else if (is_ovs) {
+			INFO("Removed interface \"%s\" from \"%s\"", hostveth, netdev->link);
+		} else {
+			INFO("Removed interface \"%s\"", hostveth);
 		}
-		INFO("Removed interface \"%s\" from \"%s\"", hostveth, netdev->link);
 
 clear_ifindices:
 		/*
