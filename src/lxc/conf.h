@@ -562,7 +562,7 @@ struct lxc_conf {
 	/* sysctls */
 	struct list_head sysctls;
 
-	bool syslogns;
+	char *syslogns;
 	/* procs */
 	struct list_head procs;
 

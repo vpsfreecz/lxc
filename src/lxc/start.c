@@ -1059,7 +1059,6 @@ static int do_start(void *data)
 	__lxc_unused __do_close int data_sock0 = handler->data_sock[0],
 				    data_sock1 = handler->data_sock[1];
 	__do_close int devnull_fd = -EBADF, status_fd = -EBADF;
-	struct lxc_conf *conf = handler->conf;
 	int ret;
 	uid_t new_uid;
 	gid_t new_gid;
@@ -1111,16 +1110,6 @@ static int do_start(void *data)
 			goto out_warn_father;
 		}
 		INFO("Unshared CLONE_NEWNET");
-		if (conf->syslogns) {
-			INFO("Unshare of syslog namespace requested");
-			klogctl(11 , "", 0);
-			ret = unshare(0);
-			if (ret < 0) {
-				SYSERROR("Failed to unshare syslog_ns");
-				goto out_warn_father;
-			}
-			INFO("Unshared syslog namespace");
-		}
 	}
 
 	/* If we are in a new user namespace, become root there to have
@@ -1640,6 +1629,20 @@ static int lxc_spawn(struct lxc_handler *handler)
 	const char *name = handler->name;
 	struct lxc_conf *conf = handler->conf;
 	struct cgroup_ops *cgroup_ops = handler->cgroup_ops;
+
+	if (conf->syslogns) {
+		INFO("Unshare of syslog namespace requested");
+		if (strcmp(conf->syslogns, "1") == 0)
+			klogctl(11 , "lolo", 4);
+		else
+			klogctl(11 , conf->syslogns, strlen(conf->syslogns));
+		ret = unshare(0);
+		if (ret < 0) {
+			SYSERROR("Failed to unshare syslog_ns");
+			return -1;
+		}
+		INFO("Unshared syslog namespace");
+	}
 
 	id_map = &conf->id_map;
 	wants_to_map_ids = !list_empty(id_map);
