@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
+#include <sys/klog.h>
 #include <sys/mount.h>
 #include <sys/param.h>
 #include <sys/prctl.h>
@@ -1098,6 +1099,7 @@ static int do_start(void *data)
 	if (!lxc_sync_wait_parent(handler, START_SYNC_STARTUP))
 		goto out_warn_father;
 
+
 	/* Unshare CLONE_NEWNET after CLONE_NEWUSER. See
 	 * https://github.com/lxc/lxd/issues/1978.
 	 */
@@ -1627,6 +1629,25 @@ static int lxc_spawn(struct lxc_handler *handler)
 	const char *name = handler->name;
 	struct lxc_conf *conf = handler->conf;
 	struct cgroup_ops *cgroup_ops = handler->cgroup_ops;
+
+	if (conf->syslogns) {
+		char default_name[] = "container";
+		INFO("Unshare of syslog namespace requested");
+		if (strcmp(conf->syslogns, "1") == 0)
+			ret = klogctl(11 , default_name, strlen(default_name));
+		else
+			ret = klogctl(11 , conf->syslogns, strlen(conf->syslogns));
+		if (ret != 0) {
+			SYSERROR("Failed to unshare syslog_ns: klogctl");
+			return -1;
+		}
+		ret = unshare(0);
+		if (ret < 0) {
+			SYSERROR("Failed to unshare syslog_ns: unshare");
+			return -1;
+		}
+		INFO("Unshared syslog namespace");
+	}
 
 	id_map = &conf->id_map;
 	wants_to_map_ids = !list_empty(id_map);

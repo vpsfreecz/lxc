@@ -155,6 +155,7 @@ lxc_config_define(tty_max);
 lxc_config_define(tty_dir);
 lxc_config_define(uts_name);
 lxc_config_define(sysctl);
+lxc_config_define(syslogns);
 lxc_config_define(proc);
 lxc_config_define(sched_core);
 
@@ -273,6 +274,7 @@ static struct lxc_config_t config_jump_table[] = {
 	{ "lxc.tty.max",                    true,  set_config_tty_max,                    get_config_tty_max,                    clr_config_tty_max,                    },
 	{ "lxc.uts.name",                   true,  set_config_uts_name,                   get_config_uts_name,                   clr_config_uts_name,                   },
 	{ "lxc.sysctl",                     false, set_config_sysctl,                     get_config_sysctl,                     clr_config_sysctl,                     },
+	{ "lxc.syslogns",                   true,  set_config_syslogns,                   get_config_syslogns,                   clr_config_syslogns,                   },
 	{ "lxc.proc",                       false, set_config_proc,                       get_config_proc,                       clr_config_proc,                       },
 };
 
@@ -2213,6 +2215,22 @@ static int set_config_sysctl(const char *key, const char *value,
 
 	list_add_tail(&sysctl_elem->head, &lxc_conf->sysctls);
 	move_ptr(sysctl_elem);
+
+	return 0;
+}
+
+static int set_config_syslogns(const char *key, const char *value,
+			       struct lxc_conf *lxc_conf, void *data)
+{
+	char *dup;
+
+	if (lxc_config_value_empty(value))
+		return clr_config_syslogns(key, lxc_conf, NULL);
+
+
+	dup = strdup(value);
+
+	lxc_conf->syslogns = dup;
 
 	return 0;
 }
@@ -4687,6 +4705,12 @@ static int get_config_sysctl(const char *key, char *retv, int inlen,
 	return fulllen;
 }
 
+static int get_config_syslogns(const char *key, char *retv, int inlen,
+			       struct lxc_conf *c, void *data)
+{
+	return lxc_get_conf_str(retv, inlen, c->syslogns);
+}
+
 static int get_config_proc(const char *key, char *retv, int inlen,
 			   struct lxc_conf *c, void *data)
 {
@@ -5323,6 +5347,13 @@ static inline int clr_config_sysctl(const char *key, struct lxc_conf *c,
 				   void *data)
 {
 	return lxc_clear_sysctls(c, key);
+}
+
+static inline int clr_config_syslogns(const char *key, struct lxc_conf *c,
+				      void *data)
+{
+	c->syslogns = NULL;
+	return 0;
 }
 
 static inline int clr_config_proc(const char *key, struct lxc_conf *c,
