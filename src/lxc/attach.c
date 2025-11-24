@@ -1064,19 +1064,13 @@ static bool fetch_seccomp(struct lxc_container *c, lxc_attach_options_t *options
 	}
 
         /* Remove current setting. */
-	if (!c->set_config_item(c, "lxc.seccomp.profile", "") &&
-	    !c->set_config_item(c, "lxc.seccomp", ""))
+	if (!c->set_config_item(c, "lxc.seccomp.profile", ""))
 		return false;
 
 	/* Fetch the current profile path over the cmd interface. */
 	path = c->get_running_config_item(c, "lxc.seccomp.profile");
-	if (!path) {
-		INFO("Failed to retrieve lxc.seccomp.profile");
-
-		path = c->get_running_config_item(c, "lxc.seccomp");
-		if (!path)
-			return log_info(true, "Failed to retrieve lxc.seccomp");
-	}
+	if (!path)
+		return log_info(true, "Failed to retrieve lxc.seccomp.profile");
 
 	/* Copy the value into the new lxc_conf. */
 	bret = c->set_config_item(c, "lxc.seccomp.profile", path);
