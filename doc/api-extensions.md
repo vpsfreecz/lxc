@@ -160,3 +160,10 @@ This adds the new options `cgroup2`, `cgroup2:ro`, `cgroup2:force`,
 `cgroup2:ro:force` for the `lxc.mount.auto` configuration key. For example, if
 a user specifies `cgroup2:force` LXC will pre-mount a pure `cgroup2` layout for
 the container even if the host is running with a hybrid layout.
+
+## environment\_empty\_container
+
+This adds `lxc.environment.empty_container`. When enabled, LXC keeps the
+conventional `container` environment variable present but gives it an empty
+value for both container start and attach. The default remains
+`container=lxc`.

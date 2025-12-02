@@ -636,6 +636,17 @@ int main(int argc, char *argv[])
 		goto non_test_error;
 	}
 
+	if (set_get_compare_clear_save_load(c, "lxc.environment.empty_container",
+					     "1", tmpf, true) < 0) {
+		lxc_error("%s\n", "lxc.environment.empty_container");
+		goto non_test_error;
+	}
+
+	if (c->set_config_item(c, "lxc.environment.empty_container", "2")) {
+		lxc_error("%s\n", "Accepted invalid lxc.environment.empty_container value");
+		goto non_test_error;
+	}
+
 	if (set_get_compare_clear_save_load(c, "lxc.init.cmd", "/bin/bash", tmpf, true) < 0) {
 		lxc_error("%s\n", "lxc.init.cmd");
 		goto non_test_error;

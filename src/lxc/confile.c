@@ -80,6 +80,7 @@ lxc_config_define(console_rotate);
 lxc_config_define(console_size);
 lxc_config_define(unsupported_key);
 lxc_config_define(environment);
+lxc_config_define(environment_empty_container);
 lxc_config_define(ephemeral);
 lxc_config_define(execute_cmd);
 lxc_config_define(group);
@@ -212,6 +213,7 @@ static struct lxc_config_t config_jump_table[] = {
 	{ "lxc.console.size",               true,  set_config_console_size,               get_config_console_size,               clr_config_console_size,               },
 	{ "lxc.sched.core",		    true,  set_config_sched_core,		  get_config_sched_core,                 clr_config_sched_core,                 },
 	{ "lxc.environment",                true,  set_config_environment,                get_config_environment,                clr_config_environment,                },
+	{ "lxc.environment.empty_container", true,  set_config_environment_empty_container, get_config_environment_empty_container, clr_config_environment_empty_container, },
 	{ "lxc.ephemeral",                  true,  set_config_ephemeral,                  get_config_ephemeral,                  clr_config_ephemeral,                  },
 	{ "lxc.execute.cmd",                true,  set_config_execute_cmd,                get_config_execute_cmd,                clr_config_execute_cmd,                },
 	{ "lxc.group",                      true,  set_config_group,                      get_config_group,                      clr_config_group,                      },
@@ -1571,6 +1573,30 @@ static int set_config_group(const char *key, const char *value,
 		move_ptr(entry);
 	}
 
+	return 0;
+}
+
+static int set_config_environment_empty_container(const char *key,
+						  const char *value,
+						  struct lxc_conf *lxc_conf,
+						  void *data)
+{
+	return set_config_bool_item(&lxc_conf->empty_container_env, value, false);
+}
+
+static int get_config_environment_empty_container(const char *key,
+						  char *retv, int inlen,
+						  struct lxc_conf *c,
+						  void *data)
+{
+	return lxc_get_conf_bool(c, retv, inlen, c->empty_container_env);
+}
+
+static inline int clr_config_environment_empty_container(const char *key,
+							 struct lxc_conf *c,
+							 void *data)
+{
+	c->empty_container_env = false;
 	return 0;
 }
 
@@ -6582,6 +6608,8 @@ int lxc_list_subkeys(struct lxc_conf *conf, const char *key, char *retv,
 		strprint(retv, inlen, "raw\n");
 	} else if (strequal(key, "lxc.cgroup")) {
 		strprint(retv, inlen, "dir\n");
+	} else if (strequal(key, "lxc.environment")) {
+		strprint(retv, inlen, "empty_container\n");
 	} else if (strequal(key, "lxc.selinux")) {
 		strprint(retv, inlen, "context\n");
 		strprint(retv, inlen, "context.keyring\n");

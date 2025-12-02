@@ -1368,9 +1368,13 @@ static int do_start(void *data)
 	if (ret < 0)
 		goto out_warn_father;
 
-	ret = putenv("container=lxc");
+	/*
+	 * Keep the conventional container marker present. Selected guests need
+	 * an empty value instead of LXC's default value.
+	 */
+	ret = setenv("container", handler->conf->empty_container_env ? "" : "lxc", 1);
 	if (ret < 0) {
-		SYSERROR("Failed to set environment variable: container=lxc");
+		SYSERROR("Failed to set container environment variable");
 		goto out_warn_father;
 	}
 

@@ -3271,6 +3271,7 @@ struct lxc_conf *lxc_conf_init(void)
 	new->root_nsuid_map = NULL;
 	new->root_nsgid_map = NULL;
 	INIT_LIST_HEAD(&new->environment);
+	new->empty_container_env = false;
 	INIT_LIST_HEAD(&new->limits);
 	INIT_LIST_HEAD(&new->sysctls);
 	INIT_LIST_HEAD(&new->procs);

@@ -161,6 +161,14 @@ int main(int argc, char *argv[])
 	}
 	printf("get_keys returned %d\n%s", ret, v3);
 
+	ret = c->get_keys(c, "lxc.environment", v3, 2000);
+	if (ret < 0 || !strstr(v3, "empty_container\n")) {
+		fprintf(stderr, "%d: failed to get environment keys(%d)\n", __LINE__, ret);
+		ret = 1;
+		goto out;
+	}
+	printf("get_keys returned %d\n%s", ret, v3);
+
 	ret = 0;
 
 out:

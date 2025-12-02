@@ -510,6 +510,12 @@ struct lxc_conf {
 	 * started */
 	struct list_head environment;
 
+	/*
+	 * Inject an empty "container=" environment variable instead of the
+	 * default "container=lxc" marker.
+	 */
+	bool empty_container_env;
+
 	/* text representation of the config file */
 	char *unexpanded_config;
 	size_t unexpanded_len;

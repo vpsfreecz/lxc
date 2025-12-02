@@ -3017,6 +3017,21 @@
             </programlisting>
           </listitem>
         </varlistentry>
+
+	<varlistentry>
+	  <term>
+	    <option>lxc.environment.empty_container</option>
+	  </term>
+	  <listitem>
+	    <para>
+	      Set this boolean to <option>1</option> to keep the conventional
+	      <option>container</option> environment variable present with an
+	      empty value. The default value <option>0</option> retains
+	      <option>container=lxc</option>. The setting applies to both
+	      container start and attach.
+	    </para>
+	  </listitem>
+	</varlistentry>
       </variablelist>
     </refsect2>
 
