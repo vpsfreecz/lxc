@@ -873,7 +873,14 @@ static int lxc_attach_set_environment(struct attach_context *ctx,
 		}
 	}
 
-	ret = putenv("container=lxc");
+	/* Honor lxc.environment.empty_container when setting the default env. */
+	const char *container_env = "container=lxc";
+
+	if (ctx->container->lxc_conf &&
+	    ctx->container->lxc_conf->empty_container_env)
+		container_env = "container=";
+
+	ret = putenv(container_env);
 	if (ret < 0)
 		return log_warn(-1, "Failed to set environment variable");
 

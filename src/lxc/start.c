@@ -1371,9 +1371,16 @@ static int do_start(void *data)
 	if (ret < 0)
 		goto out_warn_father;
 
-	ret = putenv("container=lxc");
+	/* By default we set container=lxc so tools can detect LXC. When
+	 * lxc.environment.empty_container is set we instead inject an empty
+	 * container= entry. This is honored on container start and lxc-attach.
+	 */
+	const char *container_env = handler->conf->empty_container_env ?
+				    "container=" : "container=lxc";
+
+	ret = putenv(container_env);
 	if (ret < 0) {
-		SYSERROR("Failed to set environment variable: container=lxc");
+		SYSERROR("Failed to set container environment variable");
 		goto out_warn_father;
 	}
 
