@@ -80,6 +80,7 @@ lxc_config_define(console_rotate);
 lxc_config_define(console_size);
 lxc_config_define(unsupported_key);
 lxc_config_define(environment);
+lxc_config_define(environment_hide_container);
 lxc_config_define(ephemeral);
 lxc_config_define(execute_cmd);
 lxc_config_define(group);
@@ -212,6 +213,7 @@ static struct lxc_config_t config_jump_table[] = {
 	{ "lxc.console.size",               true,  set_config_console_size,               get_config_console_size,               clr_config_console_size,               },
 	{ "lxc.sched.core",		    true,  set_config_sched_core,		  get_config_sched_core,                 clr_config_sched_core,                 },
 	{ "lxc.environment",                true,  set_config_environment,                get_config_environment,                clr_config_environment,                },
+	{ "lxc.environment.hide_container", true,  set_config_environment_hide_container, get_config_environment_hide_container, clr_config_environment_hide_container, },
 	{ "lxc.ephemeral",                  true,  set_config_ephemeral,                  get_config_ephemeral,                  clr_config_ephemeral,                  },
 	{ "lxc.execute.cmd",                true,  set_config_execute_cmd,                get_config_execute_cmd,                clr_config_execute_cmd,                },
 	{ "lxc.group",                      true,  set_config_group,                      get_config_group,                      clr_config_group,                      },
@@ -1571,6 +1573,47 @@ static int set_config_group(const char *key, const char *value,
 		move_ptr(entry);
 	}
 
+	return 0;
+}
+
+/*
+ * lxc.environment.hide_container
+ *
+ * Boolean flag (0/1) controlling whether LXC injects the default
+ * "container=lxc" environment variable into the container's init
+ * process.
+ */
+static int set_config_environment_hide_container(const char *key,
+						 const char *value,
+						 struct lxc_conf *lxc_conf,
+						 void *data)
+{
+	/* Empty value → reset to default (0 = do not hide) */
+	if (lxc_config_value_empty(value)) {
+		lxc_conf->hide_container_env = 0;
+		return 0;
+	}
+
+	/* Very simple parser: only "0" means false, everything else is true. */
+	if (!strcmp(value, "0"))
+		lxc_conf->hide_container_env = 0;
+	else
+		lxc_conf->hide_container_env = 1;
+
+	return 0;
+}
+
+static int get_config_environment_hide_container(const char *key, char *retv,
+						 int inlen,
+						 struct lxc_conf *c, void *data)
+{
+	return snprintf(retv, inlen, "%d\n", c->hide_container_env ? 1 : 0);
+}
+
+static inline int clr_config_environment_hide_container(const char *key,
+							struct lxc_conf *c, void *data)
+{
+	c->hide_container_env = 0;
 	return 0;
 }
 

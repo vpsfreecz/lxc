@@ -510,6 +510,12 @@ struct lxc_conf {
 	 * started */
 	struct list_head environment;
 
+	/* when non-zero, do not inject the default "container=lxc"
+	 * environment variable into the container's init process.
+	 * This can be used in environments where you want to hide that
+	 * the workload is running inside an LXC container. */
+	int hide_container_env;
+
 	/* text representation of the config file */
 	char *unexpanded_config;
 	size_t unexpanded_len;
