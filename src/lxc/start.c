@@ -1371,10 +1371,18 @@ static int do_start(void *data)
 	if (ret < 0)
 		goto out_warn_father;
 
-	ret = putenv("container=lxc");
-	if (ret < 0) {
-		SYSERROR("Failed to set environment variable: container=lxc");
-		goto out_warn_father;
+	/*
+	 * By default we keep setting container=lxc in the container
+	 * environment so tools like systemd can detect LXC. This can be
+	 * turned off per-container via lxc.hide_container_environment and
+	 * is honored both on container start and lxc-attach.
+	 */
+	if (!handler->conf->hide_container_env) {
+		ret = putenv("container=lxc");
+		if (ret < 0) {
+			SYSERROR("Failed to set environment variable: container=lxc");
+			goto out_warn_father;
+		}
 	}
 
 	if (handler->conf->ttys.tty_names) {
