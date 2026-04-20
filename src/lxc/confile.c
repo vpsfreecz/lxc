@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <linux/lsm.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -103,6 +104,9 @@ lxc_config_define(monitor_signal_pdeath);
 lxc_config_define(mount);
 lxc_config_define(mount_auto);
 lxc_config_define(mount_fstab);
+lxc_config_define(namespace_clone_lsm);
+lxc_config_define(namespace_clone_lsm_name);
+lxc_config_define(namespace_clone_tracing);
 lxc_config_define(namespace_clone);
 lxc_config_define(namespace_keep);
 lxc_config_define(time_offset_boot);
@@ -245,6 +249,9 @@ static struct lxc_config_t config_jump_table[] = {
 	{ "lxc.mount.auto",                 true,  set_config_mount_auto,                 get_config_mount_auto,                 clr_config_mount_auto,                 },
 	{ "lxc.mount.entry",                true,  set_config_mount,                      get_config_mount,                      clr_config_mount,                      },
 	{ "lxc.mount.fstab",                true,  set_config_mount_fstab,                get_config_mount_fstab,                clr_config_mount_fstab,                },
+	{ "lxc.namespace.clone.lsm.name",   true,  set_config_namespace_clone_lsm_name,   get_config_namespace_clone_lsm_name,   clr_config_namespace_clone_lsm_name,   },
+	{ "lxc.namespace.clone.lsm",        true,  set_config_namespace_clone_lsm,        get_config_namespace_clone_lsm,        clr_config_namespace_clone_lsm,        },
+	{ "lxc.namespace.clone.tracing",    true,  set_config_namespace_clone_tracing,    get_config_namespace_clone_tracing,    clr_config_namespace_clone_tracing,    },
 	{ "lxc.namespace.clone",            true,  set_config_namespace_clone,            get_config_namespace_clone,            clr_config_namespace_clone,            },
 	{ "lxc.namespace.keep",             true,  set_config_namespace_keep,             get_config_namespace_keep,             clr_config_namespace_keep,             },
 	{ "lxc.namespace.share.",           false, set_config_namespace_share,            get_config_namespace_share,            clr_config_namespace_share,            },
@@ -2962,6 +2969,89 @@ static int set_config_namespace_clone(const char *key, const char *value,
 	return 0;
 }
 
+static int namespace_clone_lsm_name_to_id(const char *value, uint64_t *lsm_id)
+{
+	if (!value || !lsm_id)
+		return ret_errno(EINVAL);
+
+	if (strcasecmp(value, "apparmor") == 0) {
+		*lsm_id = LSM_ID_APPARMOR;
+		return 0;
+	}
+
+	if (strcasecmp(value, "selinux") == 0) {
+		*lsm_id = LSM_ID_SELINUX;
+		return 0;
+	}
+
+	return log_error_errno(-EINVAL, EINVAL, "Unsupported LSM namespace backend \"%s\"", value);
+}
+
+static const char *namespace_clone_lsm_id_to_name(uint64_t lsm_id)
+{
+	switch (lsm_id) {
+	case LSM_ID_APPARMOR:
+		return "apparmor";
+	case LSM_ID_SELINUX:
+		return "selinux";
+	default:
+		return NULL;
+	}
+}
+
+static int set_config_namespace_clone_tracing(const char *key, const char *value,
+					      struct lxc_conf *lxc_conf, void *data)
+{
+	return set_config_bool_item(&lxc_conf->ns_clone_tracing, value, false);
+}
+
+static int set_config_namespace_clone_lsm(const char *key, const char *value,
+					  struct lxc_conf *lxc_conf, void *data)
+{
+	__do_free char *dup = NULL;
+	char *trimmed;
+	uint64_t lsm_id;
+	int ret;
+
+	if (lxc_config_value_empty(value))
+		return clr_config_namespace_clone_lsm(key, lxc_conf, data);
+
+	dup = strdup(value);
+	if (!dup)
+		return ret_errno(ENOMEM);
+
+	trimmed = lxc_trim_whitespace_in_place(dup);
+	if (is_empty_string(trimmed))
+		return ret_errno(EINVAL);
+
+	ret = namespace_clone_lsm_name_to_id(trimmed, &lsm_id);
+	if (ret < 0)
+		return ret;
+
+	lxc_conf->ns_clone_lsm_id = lsm_id;
+	return 0;
+}
+
+static int set_config_namespace_clone_lsm_name(const char *key, const char *value,
+					       struct lxc_conf *lxc_conf, void *data)
+{
+	__do_free char *dup = NULL;
+	char *trimmed;
+
+	if (lxc_config_value_empty(value))
+		return clr_config_namespace_clone_lsm_name(key, lxc_conf, data);
+
+	dup = strdup(value);
+	if (!dup)
+		return ret_errno(ENOMEM);
+
+	trimmed = lxc_trim_whitespace_in_place(dup);
+	if (is_empty_string(trimmed))
+		return ret_errno(EINVAL);
+
+	return set_config_string_item(&lxc_conf->ns_clone_lsm_name, trimmed);
+}
+
 static int set_config_namespace_keep(const char *key, const char *value,
 				     struct lxc_conf *lxc_conf, void *data)
 {
@@ -4741,6 +4831,24 @@ static int get_config_namespace_clone(const char *key, char *retv, int inlen,
 	return fulllen;
 }
 
+static int get_config_namespace_clone_tracing(const char *key, char *retv, int inlen,
+					      struct lxc_conf *c, void *data)
+{
+	return lxc_get_conf_bool(c, retv, inlen, c->ns_clone_tracing);
+}
+
+static int get_config_namespace_clone_lsm(const char *key, char *retv, int inlen,
+					  struct lxc_conf *c, void *data)
+{
+	return lxc_get_conf_str(retv, inlen, namespace_clone_lsm_id_to_name(c->ns_clone_lsm_id));
+}
+
+static int get_config_namespace_clone_lsm_name(const char *key, char *retv, int inlen,
+					       struct lxc_conf *c, void *data)
+{
+	return lxc_get_conf_str(retv, inlen, c->ns_clone_lsm_name);
+}
+
 static int get_config_namespace_keep(const char *key, char *retv, int inlen,
 				     struct lxc_conf *c, void *data)
 {
@@ -5344,6 +5452,27 @@ static int clr_config_namespace_clone(const char *key,
 				      struct lxc_conf *lxc_conf, void *data)
 {
 	lxc_conf->ns_clone = 0;
+	return 0;
+}
+
+static int clr_config_namespace_clone_tracing(const char *key,
+					      struct lxc_conf *lxc_conf, void *data)
+{
+	lxc_conf->ns_clone_tracing = false;
+	return 0;
+}
+
+static int clr_config_namespace_clone_lsm(const char *key,
+					  struct lxc_conf *lxc_conf, void *data)
+{
+	lxc_conf->ns_clone_lsm_id = 0;
+	return clr_config_namespace_clone_lsm_name(key, lxc_conf, data);
+}
+
+static int clr_config_namespace_clone_lsm_name(const char *key,
+					       struct lxc_conf *lxc_conf, void *data)
+{
+	free_disarm(lxc_conf->ns_clone_lsm_name);
 	return 0;
 }
 
@@ -6664,6 +6793,11 @@ int lxc_list_subkeys(struct lxc_conf *conf, const char *key, char *retv,
 		strprint(retv, inlen, "order\n");
 	} else if (strequal(key, "lxc.monitor")) {
 		strprint(retv, inlen, "unshare\n");
+	} else if (strequal(key, "lxc.namespace.clone")) {
+		strprint(retv, inlen, "lsm\n");
+		strprint(retv, inlen, "tracing\n");
+	} else if (strequal(key, "lxc.namespace.clone.lsm")) {
+		strprint(retv, inlen, "name\n");
 	} else if (strequal(key, "lxc.keyring")) {
 		strprint(retv, inlen, "session\n");
 	} else {

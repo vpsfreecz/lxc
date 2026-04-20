@@ -1961,6 +1961,59 @@
 
         <varlistentry>
           <term>
+            <option>lxc.namespace.clone.tracing</option>
+          </term>
+          <listitem>
+            <para>
+            Request a new tracing namespace on the next child-boundary clone
+            used to spawn the container. Set this option to <option>1</option>
+            to enable it or <option>0</option> to disable it.
+            </para>
+
+            <para>
+            This option requires kernel support for tracing namespaces and does
+            not use the generic namespace clone/share keys because tracing
+            namespaces are controlled through an explicit child-boundary request
+            instead of a clone flag.
+            </para>
+          </listitem>
+        </varlistentry>
+
+        <varlistentry>
+          <term>
+            <option>lxc.namespace.clone.lsm</option>
+          </term>
+          <listitem>
+            <para>
+            Request a new LSM namespace on the next child-boundary clone used
+            to spawn the container. The value selects the backend, currently
+            <option>apparmor</option> or <option>selinux</option>.
+            </para>
+
+            <para>
+            Backend support is kernel-dependent. LXC passes the request through
+            the kernel LSM userspace API and fails container startup if the
+            selected backend rejects the child-boundary request.
+            </para>
+          </listitem>
+        </varlistentry>
+
+        <varlistentry>
+          <term>
+            <option>lxc.namespace.clone.lsm.name</option>
+          </term>
+          <listitem>
+            <para>
+            Optional backend-specific namespace name payload carried together
+            with <option>lxc.namespace.clone.lsm</option>. This is primarily
+            useful for AppArmor-backed LSM namespaces that need a stable guest
+            namespace name.
+            </para>
+          </listitem>
+        </varlistentry>
+
+        <varlistentry>
+          <term>
             <option>lxc.namespace.share.[namespace identifier]</option>
           </term>
           <listitem>

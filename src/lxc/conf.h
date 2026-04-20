@@ -5,6 +5,7 @@
 
 #include "config.h"
 
+#include <stdint.h>
 #include <linux/magic.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -556,6 +557,9 @@ struct lxc_conf {
 		int ns_clone;
 		int ns_keep;
 		char *ns_share[LXC_NS_MAX];
+		bool ns_clone_tracing;
+		uint64_t ns_clone_lsm_id;
+		char *ns_clone_lsm_name;
 	};
 
 	/* init working directory */

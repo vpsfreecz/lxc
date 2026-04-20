@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <linux/lsm.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
@@ -69,6 +70,14 @@
 
 lxc_log_define(start, lxc);
 
+#ifndef LSM_ATTR_UNSHARE
+#define LSM_ATTR_UNSHARE 106
+#endif
+
+#ifndef SYSLOG_ACTION_NEW_TRACING_NS
+#define SYSLOG_ACTION_NEW_TRACING_NS 12
+#endif
+
 extern void mod_all_rdeps(struct lxc_container *c, bool inc);
 static bool do_destroy_container(struct lxc_handler *handler);
 static int lxc_rmdir_onedev_wrapper(void *data);
@@ -112,6 +121,96 @@ static void lxc_put_nsfds(struct lxc_handler *handler)
 
 		close_prot_errno_disarm(handler->nsfd[i]);
 	}
+}
+
+static const char *namespace_clone_lsm_id_to_name(uint64_t lsm_id)
+{
+	switch (lsm_id) {
+	case LSM_ID_APPARMOR:
+		return "apparmor";
+	case LSM_ID_SELINUX:
+		return "selinux";
+	default:
+		return "unknown";
+	}
+}
+
+static int lxc_request_tracing_namespace(const struct lxc_conf *conf)
+{
+	long ret;
+
+	if (!conf->ns_clone_tracing)
+		return 0;
+
+#if defined(SYS_syslog)
+	ret = syscall(SYS_syslog, SYSLOG_ACTION_NEW_TRACING_NS, NULL, 0);
+#elif defined(__NR_syslog)
+	ret = syscall(__NR_syslog, SYSLOG_ACTION_NEW_TRACING_NS, NULL, 0);
+#else
+	errno = ENOSYS;
+	ret = -1;
+#endif
+	if (ret < 0)
+		return log_error_errno(-1, errno, "Failed to request tracing namespace child boundary");
+
+	return 0;
+}
+
+static int lxc_request_lsm_namespace(const struct lxc_conf *conf)
+{
+	__do_free struct lsm_ctx *ctx = NULL;
+	const char *backend = namespace_clone_lsm_id_to_name(conf->ns_clone_lsm_id);
+	size_t name_len = 0, ctx_size;
+	long ret;
+
+	if (!conf->ns_clone_lsm_id) {
+		if (conf->ns_clone_lsm_name)
+			return log_error_errno(-EINVAL, EINVAL, "Cannot set LSM namespace name without selecting a backend");
+
+		return 0;
+	}
+
+	if (conf->ns_clone_lsm_name)
+		name_len = strlen(conf->ns_clone_lsm_name) + 1;
+
+	ctx_size = sizeof(*ctx) + name_len;
+	ctx = zalloc(ctx_size);
+	if (!ctx)
+		return ret_errno(ENOMEM);
+
+	ctx->id = conf->ns_clone_lsm_id;
+	ctx->len = ctx_size;
+	ctx->ctx_len = name_len;
+	if (name_len > 0)
+		memcpy(ctx->ctx, conf->ns_clone_lsm_name, name_len);
+
+#if defined(SYS_lsm_set_self_attr)
+	ret = syscall(SYS_lsm_set_self_attr, LSM_ATTR_UNSHARE, ctx, ctx_size, 0);
+#elif defined(__NR_lsm_set_self_attr)
+	ret = syscall(__NR_lsm_set_self_attr, LSM_ATTR_UNSHARE, ctx, ctx_size, 0);
+#else
+	errno = ENOSYS;
+	ret = -1;
+#endif
+	if (ret < 0)
+		return log_error_errno(-1, errno, "Failed to request %s LSM namespace child boundary", backend);
+
+	return 0;
+}
+
+static int lxc_request_child_namespaces(const struct lxc_conf *conf)
+{
+	int ret;
+
+	ret = lxc_request_tracing_namespace(conf);
+	if (ret < 0)
+		return ret;
+
+	ret = lxc_request_lsm_namespace(conf);
+	if (ret < 0)
+		return ret;
+
+	return 0;
 }
 
 static int lxc_try_preserve_namespace(struct lxc_handler *handler,
@@ -1566,6 +1665,10 @@ static inline int do_share_ns(void *arg)
 		DEBUG("Inherited %s namespace", ns_info[i].proc_name);
 	}
 
+	ret = lxc_request_child_namespaces(handler->conf);
+	if (ret < 0)
+		return -1;
+
 	flags = handler->ns_on_clone_flags;
 	flags |= CLONE_PARENT;
 	handler->pid = lxc_raw_clone_cb(do_start, handler, CLONE_PIDFD | flags,
@@ -1697,6 +1800,10 @@ static int lxc_spawn(struct lxc_handler *handler)
 		}
 	} else {
 		int cgroup_fd = -EBADF;
+
+		ret = lxc_request_child_namespaces(conf);
+		if (ret < 0)
+			goto out_delete_net;
 
 		struct clone_args clone_args = {
 			.flags = handler->clone_flags,

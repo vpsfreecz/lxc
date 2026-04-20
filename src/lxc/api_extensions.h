@@ -42,6 +42,8 @@ static char *api_extensions[] = {
 	"cgroup_advanced_isolation",
 	"network_bridge_vlan",
 	"time_namespace",
+	"tracing_namespace",
+	"lsm_namespace",
 	"seccomp_allow_deny_syntax",
 	"devpts_fd",
 #ifdef HAVE_DECL_SECCOMP_NOTIFY_FD
