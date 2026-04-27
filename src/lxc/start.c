@@ -6,7 +6,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
-#include <linux/lsm.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
@@ -59,6 +58,7 @@
 #include "syscall_wrappers.h"
 #include "terminal.h"
 #include "utils.h"
+#include "vpsadminos_namespaces.h"
 
 #if HAVE_LIBCAP
 #include <sys/capability.h>
@@ -69,14 +69,6 @@
 #endif
 
 lxc_log_define(start, lxc);
-
-#ifndef LSM_ATTR_UNSHARE
-#define LSM_ATTR_UNSHARE 106
-#endif
-
-#ifndef SYSLOG_ACTION_NEW_TRACING_NS
-#define SYSLOG_ACTION_NEW_TRACING_NS 12
-#endif
 
 extern void mod_all_rdeps(struct lxc_container *c, bool inc);
 static bool do_destroy_container(struct lxc_handler *handler);

@@ -8,7 +8,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
-#include <linux/lsm.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -35,6 +34,7 @@
 #include "network.h"
 #include "parse.h"
 #include "utils.h"
+#include "vpsadminos_namespaces.h"
 
 #if !HAVE_STRLCPY
 #include "strlcpy.h"
