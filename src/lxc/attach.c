@@ -716,6 +716,27 @@ static int __attach_namespaces_nsfd(struct attach_context *ctx,
 	return fret;
 }
 
+static int attach_vpsadminos_namespaces(struct attach_context *ctx)
+{
+	for (size_t i = 0; i < ARRAY_SIZE(vpsadminos_attach_ns_info); i++) {
+		const struct vpsadminos_attach_ns_info *ns = &vpsadminos_attach_ns_info[i];
+		int ret;
+
+		if (ctx->vpsadminos_ns_fd[i] < 0)
+			continue;
+
+		ret = setns(ctx->vpsadminos_ns_fd[i], 0);
+		if (ret)
+			return syserror("Failed to attach to %s namespace of %d",
+					ns->proc_name, ctx->init_pid);
+
+		close_prot_errno_disarm(ctx->vpsadminos_ns_fd[i]);
+		TRACE("Attached to %s namespace", ns->proc_name);
+	}
+
+	return 0;
+}
+
 static int attach_namespaces(struct attach_context *ctx,
 			     lxc_attach_options_t *options)
 {
@@ -735,6 +756,17 @@ static int attach_namespaces(struct attach_context *ctx,
 		}
 	}
 
+	/*
+	 * syslog, tracing and LSM namespaces are vpsAdminOS extensions and are
+	 * not part of the pidfd namespace set. Join them before switching to the
+	 * container's user namespace, otherwise permission checks for these
+	 * namespace types can fail after the attach process has left the initial
+	 * user namespace.
+	 */
+	ret = attach_vpsadminos_namespaces(ctx);
+	if (ret)
+		return ret;
+
 	if (ctx->init_pidfd < 0)
 		ret = __attach_namespaces_nsfd(ctx, options);
 	else
@@ -742,21 +774,6 @@ static int attach_namespaces(struct attach_context *ctx,
 
 	if (ret)
 		return ret;
-
-	for (size_t i = 0; i < ARRAY_SIZE(vpsadminos_attach_ns_info); i++) {
-		const struct vpsadminos_attach_ns_info *ns = &vpsadminos_attach_ns_info[i];
-
-		if (ctx->vpsadminos_ns_fd[i] < 0)
-			continue;
-
-		ret = setns(ctx->vpsadminos_ns_fd[i], 0);
-		if (ret)
-			return syserror("Failed to attach to %s namespace of %d",
-					ns->proc_name, ctx->init_pid);
-
-		close_prot_errno_disarm(ctx->vpsadminos_ns_fd[i]);
-		TRACE("Attached to %s namespace", ns->proc_name);
-	}
 
 	return 0;
 }
