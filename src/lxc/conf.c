@@ -3127,7 +3127,7 @@ static int parse_resource(const char *res)
 
 int setup_resource_limits(struct lxc_conf *conf, pid_t pid)
 {
-	int resid;
+	int resid, ret;
 	struct lxc_limit *lim;
 
 	if (list_empty(&conf->limits))
@@ -3139,8 +3139,25 @@ int setup_resource_limits(struct lxc_conf *conf, pid_t pid)
 			return log_error(-1, "Unknown resource %s", lim->resource);
 
 #if HAVE_PRLIMIT || HAVE_PRLIMIT64
-		if (prlimit(pid, resid, &lim->limit, NULL) != 0)
-			return log_error_errno(-1, errno, "Failed to set limit %s", lim->resource);
+		ret = prlimit(pid, resid, &lim->limit, NULL);
+		if (ret) {
+			int saved_errno = errno;
+			struct rlimit current;
+
+			if (saved_errno == EPERM) {
+				ret = prlimit(pid, resid, NULL, &current);
+				if (!ret &&
+				    current.rlim_cur == lim->limit.rlim_cur &&
+				    current.rlim_max == lim->limit.rlim_max) {
+					TRACE("Skipped already applied \"%s\" limit",
+					      lim->resource);
+					continue;
+				}
+			}
+
+			return log_error_errno(-1, saved_errno,
+					       "Failed to set limit %s", lim->resource);
+		}
 
 		TRACE("Setup \"%s\" limit", lim->resource);
 #else
