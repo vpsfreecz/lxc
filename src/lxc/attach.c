@@ -379,20 +379,32 @@ static int parse_init_status(struct attach_context *ctx, lxc_attach_options_t *o
 static bool pidfd_setns_supported(struct attach_context *ctx)
 {
 	int ret;
+	int saved_errno;
+	bool supported;
 
 	/*
 	 * The ability to attach to time namespaces came after the introduction
-	 * of of using pidfds for attaching to namespaces. To avoid having to
+	 * of using pidfds for attaching to namespaces. To avoid having to
 	 * special-case both CLONE_NEWUSER and CLONE_NEWTIME handling, let's
 	 * use CLONE_NEWTIME as gatekeeper.
+	 *
+	 * Unprivileged attachers can legitimately get EPERM here because this
+	 * probe does not include CLONE_NEWUSER. The real attach includes all
+	 * requested namespaces, so the kernel can validate the user namespace
+	 * first and then install the rest of the namespace set in order.
 	 */
-	if (ctx->init_pidfd >= 0)
+	if (ctx->init_pidfd >= 0) {
 		ret = setns(ctx->init_pidfd, CLONE_NEWTIME);
-	else
+		saved_errno = errno;
+	} else {
 		ret = -EOPNOTSUPP;
+		saved_errno = EOPNOTSUPP;
+	}
+
+	supported = ret == 0 || saved_errno == EPERM;
 	TRACE("Attaching to namespaces via pidfds %s",
-	      ret ? "unsupported" : "supported");
-	return ret == 0;
+	      supported ? "supported" : "unsupported");
+	return supported;
 }
 
 static int get_attach_context(struct attach_context *ctx,
