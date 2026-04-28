@@ -631,25 +631,29 @@ static int __prepare_namespaces_nsfd(struct attach_context *ctx,
 static int prepare_namespaces(struct attach_context *ctx,
 			      lxc_attach_options_t *options)
 {
-	for (size_t i = 0; i < ARRAY_SIZE(vpsadminos_attach_ns_info); i++) {
-		const struct vpsadminos_attach_ns_info *ns = &vpsadminos_attach_ns_info[i];
+	if (ctx->init_pidfd < 0) {
+		for (size_t i = 0; i < ARRAY_SIZE(vpsadminos_attach_ns_info); i++) {
+			const struct vpsadminos_attach_ns_info *ns = &vpsadminos_attach_ns_info[i];
 
-		ctx->vpsadminos_ns_fd[i] = same_ns(ctx->dfd_self_pid,
-						   ctx->dfd_init_pid,
-						   ns->proc_path);
-		if (ctx->vpsadminos_ns_fd[i] >= 0) {
-			TRACE("Different %s namespace needs attach", ns->proc_name);
-			continue;
+			ctx->vpsadminos_ns_fd[i] = same_ns(ctx->dfd_self_pid,
+							   ctx->dfd_init_pid,
+							   ns->proc_path);
+			if (ctx->vpsadminos_ns_fd[i] >= 0) {
+				TRACE("Different %s namespace needs attach", ns->proc_name);
+				continue;
+			}
+
+			if (ctx->vpsadminos_ns_fd[i] == -ENOENT) {
+				TRACE("Shared or missing %s namespace doesn't need attach", ns->proc_name);
+				ctx->vpsadminos_ns_fd[i] = -EBADF;
+				continue;
+			}
+
+			return syserror("Failed to preserve %s namespace of %d",
+					ns->proc_name, ctx->init_pid);
 		}
-
-		if (ctx->vpsadminos_ns_fd[i] == -ENOENT) {
-			TRACE("Shared or missing %s namespace doesn't need attach", ns->proc_name);
-			ctx->vpsadminos_ns_fd[i] = -EBADF;
-			continue;
-		}
-
-		return syserror("Failed to preserve %s namespace of %d",
-				ns->proc_name, ctx->init_pid);
+	} else {
+		TRACE("vpsAdminOS namespaces will be attached by pidfd setns");
 	}
 
 	if (ctx->init_pidfd < 0)
@@ -757,14 +761,15 @@ static int attach_namespaces(struct attach_context *ctx,
 
 	/*
 	 * syslog and tracing namespaces are vpsAdminOS extensions and are not
-	 * part of the pidfd namespace set. Join them before switching to the
-	 * container's user namespace, otherwise permission checks for these
-	 * namespace types can fail after the attach process has left the initial
-	 * user namespace.
+	 * part of the legacy namespace fd set. Without pidfd setns, join them
+	 * before switching to the container's user namespace so permission checks
+	 * still run from the initial user namespace.
 	 */
-	ret = attach_vpsadminos_namespaces(ctx);
-	if (ret)
-		return ret;
+	if (ctx->init_pidfd < 0) {
+		ret = attach_vpsadminos_namespaces(ctx);
+		if (ret)
+			return ret;
+	}
 
 	if (ctx->init_pidfd < 0)
 		ret = __attach_namespaces_nsfd(ctx, options);
