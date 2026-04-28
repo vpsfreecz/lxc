@@ -3120,8 +3120,20 @@ int setup_resource_limits(struct lxc_conf *conf, pid_t pid)
 			return log_error(-1, "Unknown resource %s", lim->resource);
 
 #if HAVE_PRLIMIT || HAVE_PRLIMIT64
-		if (prlimit(pid, resid, &lim->limit, NULL) != 0)
-			return log_error_errno(-1, errno, "Failed to set limit %s", lim->resource);
+		if (prlimit(pid, resid, &lim->limit, NULL) != 0) {
+			int saved_errno = errno;
+			struct rlimit current;
+
+			if (saved_errno == EPERM &&
+			    prlimit(pid, resid, NULL, &current) == 0 &&
+			    current.rlim_cur == lim->limit.rlim_cur &&
+			    current.rlim_max == lim->limit.rlim_max) {
+				TRACE("Skipped already applied \"%s\" limit", lim->resource);
+				continue;
+			}
+
+			return log_error_errno(-1, saved_errno, "Failed to set limit %s", lim->resource);
+		}
 
 		TRACE("Setup \"%s\" limit", lim->resource);
 #else
