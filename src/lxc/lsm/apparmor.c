@@ -1180,6 +1180,8 @@ static int apparmor_process_label_set_at(struct lsm_ops *ops, int label_fd,
 		return -EFBIG;
 
 	ret = lxc_write_nointr(label_fd, command, len - 1);
+	if (ret < 0 && errno == EOPNOTSUPP && strequal(label, "unconfined"))
+		return log_info(0, "AppArmor profile unchanged; target namespace does not support AppArmor label writes");
 	if (ret < 0)
 		return syserror("Failed to write AppArmor profile \"%s\" to %d",
 				label, label_fd);
