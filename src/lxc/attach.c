@@ -52,6 +52,16 @@ lxc_log_define(attach, lxc);
 /* Define default options if no options are supplied by the user. */
 static lxc_attach_options_t attach_static_default_options = LXC_ATTACH_OPTIONS_DEFAULT;
 
+struct vpsadminos_attach_ns_info {
+	const char *proc_name;
+	const char *proc_path;
+};
+
+static const struct vpsadminos_attach_ns_info vpsadminos_attach_ns_info[] = {
+	{ "syslog",  "ns/syslog"  },
+	{ "tracing", "ns/tracing" },
+};
+
 /*
  * The context used to attach to the container.
  * @attach_flags	: the attach flags specified in lxc_attach_options_t
@@ -100,6 +110,7 @@ struct attach_context {
 	unsigned long long capability_mask;
 	int ns_inherited;
 	int ns_fd[LXC_NS_MAX];
+	int vpsadminos_ns_fd[ARRAY_SIZE(vpsadminos_attach_ns_info)];
 	struct lsm_ops *lsm_ops;
 	__u64 core_sched_cookie;
 };
@@ -195,6 +206,9 @@ static struct attach_context *alloc_attach_context(void)
 
 	for (lxc_namespace_t i = 0; i < LXC_NS_MAX; i++)
 		ctx->ns_fd[i] = -EBADF;
+
+	for (size_t i = 0; i < ARRAY_SIZE(ctx->vpsadminos_ns_fd); i++)
+		ctx->vpsadminos_ns_fd[i] = -EBADF;
 
 	return ctx;
 }
@@ -617,6 +631,27 @@ static int __prepare_namespaces_nsfd(struct attach_context *ctx,
 static int prepare_namespaces(struct attach_context *ctx,
 			      lxc_attach_options_t *options)
 {
+	for (size_t i = 0; i < ARRAY_SIZE(vpsadminos_attach_ns_info); i++) {
+		const struct vpsadminos_attach_ns_info *ns = &vpsadminos_attach_ns_info[i];
+
+		ctx->vpsadminos_ns_fd[i] = same_ns(ctx->dfd_self_pid,
+						   ctx->dfd_init_pid,
+						   ns->proc_path);
+		if (ctx->vpsadminos_ns_fd[i] >= 0) {
+			TRACE("Different %s namespace needs attach", ns->proc_name);
+			continue;
+		}
+
+		if (ctx->vpsadminos_ns_fd[i] == -ENOENT) {
+			TRACE("Shared or missing %s namespace doesn't need attach", ns->proc_name);
+			ctx->vpsadminos_ns_fd[i] = -EBADF;
+			continue;
+		}
+
+		return syserror("Failed to preserve %s namespace of %d",
+				ns->proc_name, ctx->init_pid);
+	}
+
 	if (ctx->init_pidfd < 0)
 		return __prepare_namespaces_nsfd(ctx, options);
 
@@ -629,6 +664,9 @@ static inline void put_namespaces(struct attach_context *ctx)
 		for (int i = 0; i < LXC_NS_MAX; i++)
 			close_prot_errno_disarm(ctx->ns_fd[i]);
 	}
+
+	for (size_t i = 0; i < ARRAY_SIZE(ctx->vpsadminos_ns_fd); i++)
+		close_prot_errno_disarm(ctx->vpsadminos_ns_fd[i]);
 }
 
 static int __attach_namespaces_pidfd(struct attach_context *ctx,
@@ -680,6 +718,8 @@ static int __attach_namespaces_nsfd(struct attach_context *ctx,
 static int attach_namespaces(struct attach_context *ctx,
 			     lxc_attach_options_t *options)
 {
+	int ret;
+
 	if (lxc_log_trace()) {
 		for (lxc_namespace_t i = 0; i < LXC_NS_MAX; i++) {
 			if (ns_info[i].clone_flag & options->namespaces) {
@@ -695,9 +735,29 @@ static int attach_namespaces(struct attach_context *ctx,
 	}
 
 	if (ctx->init_pidfd < 0)
-		return __attach_namespaces_nsfd(ctx, options);
+		ret = __attach_namespaces_nsfd(ctx, options);
+	else
+		ret = __attach_namespaces_pidfd(ctx, options);
 
-	return __attach_namespaces_pidfd(ctx, options);
+	if (ret)
+		return ret;
+
+	for (size_t i = 0; i < ARRAY_SIZE(vpsadminos_attach_ns_info); i++) {
+		const struct vpsadminos_attach_ns_info *ns = &vpsadminos_attach_ns_info[i];
+
+		if (ctx->vpsadminos_ns_fd[i] < 0)
+			continue;
+
+		ret = setns(ctx->vpsadminos_ns_fd[i], 0);
+		if (ret)
+			return syserror("Failed to attach to %s namespace of %d",
+					ns->proc_name, ctx->init_pid);
+
+		close_prot_errno_disarm(ctx->vpsadminos_ns_fd[i]);
+		TRACE("Attached to %s namespace", ns->proc_name);
+	}
+
+	return 0;
 }
 
 static void put_attach_context(struct attach_context *ctx)
