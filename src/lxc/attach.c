@@ -52,6 +52,16 @@ lxc_log_define(attach, lxc);
 /* Define default options if no options are supplied by the user. */
 static lxc_attach_options_t attach_static_default_options = LXC_ATTACH_OPTIONS_DEFAULT;
 
+struct vpsadminos_attach_ns_info {
+	const char *proc_name;
+	const char *proc_path;
+};
+
+static const struct vpsadminos_attach_ns_info vpsadminos_attach_ns_info[] = {
+	{ "syslog",  "ns/syslog"  },
+	{ "tracing", "ns/tracing" },
+};
+
 /*
  * The context used to attach to the container.
  * @attach_flags	: the attach flags specified in lxc_attach_options_t
@@ -100,6 +110,7 @@ struct attach_context {
 	unsigned long long capability_mask;
 	int ns_inherited;
 	int ns_fd[LXC_NS_MAX];
+	int vpsadminos_ns_fd[ARRAY_SIZE(vpsadminos_attach_ns_info)];
 	struct lsm_ops *lsm_ops;
 	__u64 core_sched_cookie;
 };
@@ -195,6 +206,9 @@ static struct attach_context *alloc_attach_context(void)
 
 	for (lxc_namespace_t i = 0; i < LXC_NS_MAX; i++)
 		ctx->ns_fd[i] = -EBADF;
+
+	for (size_t i = 0; i < ARRAY_SIZE(ctx->vpsadminos_ns_fd); i++)
+		ctx->vpsadminos_ns_fd[i] = -EBADF;
 
 	return ctx;
 }
@@ -361,23 +375,43 @@ static int parse_init_status(struct attach_context *ctx, lxc_attach_options_t *o
 	return 0;
 }
 
-static bool pidfd_setns_supported(struct attach_context *ctx)
+static bool pidfd_setns_supported(struct attach_context *ctx,
+				   const lxc_attach_options_t *options)
 {
+	unsigned int ns_flags;
 	int ret;
+	int saved_errno;
+	bool supported;
 
 	/*
 	 * The ability to attach to time namespaces came after the introduction
-	 * of of using pidfds for attaching to namespaces. To avoid having to
+	 * of using pidfds for attaching to namespaces. To avoid having to
 	 * special-case both CLONE_NEWUSER and CLONE_NEWTIME handling, let's
 	 * use CLONE_NEWTIME as gatekeeper.
+	 *
+	 * An unprivileged attacher can legitimately get EPERM because this probe
+	 * does not include CLONE_NEWUSER. Accept that result only when the real
+	 * request will include CLONE_NEWUSER and let the kernel validate that
+	 * complete request in the right user-namespace domain. For every other
+	 * EPERM, use descriptor fallback instead of inferring pidfd support from
+	 * an ambiguous permission failure.
 	 */
-	if (ctx->init_pidfd >= 0)
+	if (ctx->init_pidfd >= 0) {
 		ret = setns(ctx->init_pidfd, CLONE_NEWTIME);
-	else
+		saved_errno = errno;
+	} else {
 		ret = -EOPNOTSUPP;
+		saved_errno = EOPNOTSUPP;
+	}
+
+	ns_flags = ctx->ns_clone_flags;
+	if (options->namespaces != -1)
+		ns_flags = options->namespaces;
+	supported = ret == 0 ||
+		    (saved_errno == EPERM && (ns_flags & CLONE_NEWUSER));
 	TRACE("Attaching to namespaces via pidfds %s",
-	      ret ? "unsupported" : "supported");
-	return ret == 0;
+	      supported ? "supported" : "unsupported");
+	return supported;
 }
 
 static int get_attach_context(struct attach_context *ctx,
@@ -434,7 +468,7 @@ static int get_attach_context(struct attach_context *ctx,
 		else
 			TRACE("Container process still running and PID was not recycled");
 
-		if (!pidfd_setns_supported(ctx)) {
+		if (!pidfd_setns_supported(ctx, options)) {
 			/* We can't risk leaking file descriptors during attach. */
 			if (close(ctx->init_pidfd))
 				return syserror("Failed to close pidfd");
@@ -617,6 +651,31 @@ static int __prepare_namespaces_nsfd(struct attach_context *ctx,
 static int prepare_namespaces(struct attach_context *ctx,
 			      lxc_attach_options_t *options)
 {
+	if (ctx->init_pidfd < 0) {
+		for (size_t i = 0; i < ARRAY_SIZE(vpsadminos_attach_ns_info); i++) {
+			const struct vpsadminos_attach_ns_info *ns = &vpsadminos_attach_ns_info[i];
+
+			ctx->vpsadminos_ns_fd[i] = same_ns(ctx->dfd_self_pid,
+							   ctx->dfd_init_pid,
+							   ns->proc_path);
+			if (ctx->vpsadminos_ns_fd[i] >= 0) {
+				TRACE("Different %s namespace needs attach", ns->proc_name);
+				continue;
+			}
+
+			if (ctx->vpsadminos_ns_fd[i] == -ENOENT) {
+				TRACE("Shared or missing %s namespace doesn't need attach", ns->proc_name);
+				ctx->vpsadminos_ns_fd[i] = -EBADF;
+				continue;
+			}
+
+			return syserror("Failed to preserve %s namespace of %d",
+					ns->proc_name, ctx->init_pid);
+		}
+	} else {
+		TRACE("vpsAdminOS namespaces will be attached by pidfd setns");
+	}
+
 	if (ctx->init_pidfd < 0)
 		return __prepare_namespaces_nsfd(ctx, options);
 
@@ -629,6 +688,9 @@ static inline void put_namespaces(struct attach_context *ctx)
 		for (int i = 0; i < LXC_NS_MAX; i++)
 			close_prot_errno_disarm(ctx->ns_fd[i]);
 	}
+
+	for (size_t i = 0; i < ARRAY_SIZE(ctx->vpsadminos_ns_fd); i++)
+		close_prot_errno_disarm(ctx->vpsadminos_ns_fd[i]);
 }
 
 static int __attach_namespaces_pidfd(struct attach_context *ctx,
@@ -677,9 +739,32 @@ static int __attach_namespaces_nsfd(struct attach_context *ctx,
 	return fret;
 }
 
+static int attach_vpsadminos_namespaces(struct attach_context *ctx)
+{
+	for (size_t i = 0; i < ARRAY_SIZE(vpsadminos_attach_ns_info); i++) {
+		const struct vpsadminos_attach_ns_info *ns = &vpsadminos_attach_ns_info[i];
+		int ret;
+
+		if (ctx->vpsadminos_ns_fd[i] < 0)
+			continue;
+
+		ret = setns(ctx->vpsadminos_ns_fd[i], 0);
+		if (ret)
+			return syserror("Failed to attach to %s namespace of %d",
+					ns->proc_name, ctx->init_pid);
+
+		close_prot_errno_disarm(ctx->vpsadminos_ns_fd[i]);
+		TRACE("Attached to %s namespace", ns->proc_name);
+	}
+
+	return 0;
+}
+
 static int attach_namespaces(struct attach_context *ctx,
 			     lxc_attach_options_t *options)
 {
+	int ret;
+
 	if (lxc_log_trace()) {
 		for (lxc_namespace_t i = 0; i < LXC_NS_MAX; i++) {
 			if (ns_info[i].clone_flag & options->namespaces) {
@@ -694,10 +779,27 @@ static int attach_namespaces(struct attach_context *ctx,
 		}
 	}
 
-	if (ctx->init_pidfd < 0)
-		return __attach_namespaces_nsfd(ctx, options);
+	/*
+	 * syslog and tracing namespaces are vpsAdminOS extensions and are not
+	 * part of the legacy namespace fd set. Without pidfd setns, join them
+	 * before switching to the container's user namespace so permission checks
+	 * still run from the initial user namespace.
+	 */
+	if (ctx->init_pidfd < 0) {
+		ret = attach_vpsadminos_namespaces(ctx);
+		if (ret)
+			return ret;
+	}
 
-	return __attach_namespaces_pidfd(ctx, options);
+	if (ctx->init_pidfd < 0)
+		ret = __attach_namespaces_nsfd(ctx, options);
+	else
+		ret = __attach_namespaces_pidfd(ctx, options);
+
+	if (ret)
+		return ret;
+
+	return 0;
 }
 
 static void put_attach_context(struct attach_context *ctx)
