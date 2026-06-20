@@ -4205,6 +4205,8 @@ int lxc_clear_namespace(struct lxc_conf *c)
 	for (int i = 0; i < LXC_NS_MAX; i++)
 		free_disarm(c->ns_share[i]);
 
+	c->ns_clone_tracing = false;
+
 	return 0;
 }
 

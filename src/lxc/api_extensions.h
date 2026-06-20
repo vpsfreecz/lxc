@@ -53,6 +53,7 @@ static char *api_extensions[] = {
 	"core_scheduling",
 	"cgroup2_auto_mounting",
 	"environment_empty_container",
+	"tracing_namespace",
 };
 
 static size_t nr_api_extensions = sizeof(api_extensions) / sizeof(*api_extensions);

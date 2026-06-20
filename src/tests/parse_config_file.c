@@ -918,6 +918,11 @@ int main(int argc, char *argv[])
 		goto non_test_error;
 	}
 
+	if (set_get_compare_clear_save_load(c, "lxc.namespace.clone.tracing", "1", tmpf, true) < 0) {
+		lxc_error("%s\n", "lxc.namespace.clone.tracing");
+		goto non_test_error;
+	}
+
 	if (c->set_config_item(c, "lxc.notaconfigkey", "invalid")) {
 		lxc_error("%s\n", "Managed to set invalid config item \"lxc.notaconfigkey\" to \"invalid\"");
 		return -1;

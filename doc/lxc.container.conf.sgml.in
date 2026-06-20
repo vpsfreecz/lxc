@@ -1961,6 +1961,26 @@
 
         <varlistentry>
           <term>
+            <option>lxc.namespace.clone.tracing</option>
+          </term>
+          <listitem>
+            <para>
+            Request a new tracing namespace on the next child-boundary clone
+            used to spawn the container. Set this option to <option>1</option>
+            to enable it or <option>0</option> to disable it.
+            </para>
+
+            <para>
+            This option requires kernel support for tracing namespaces and does
+            not use the generic namespace clone/share keys because tracing
+            namespaces are controlled through an explicit child-boundary request
+            instead of a clone flag.
+            </para>
+          </listitem>
+        </varlistentry>
+
+        <varlistentry>
+          <term>
             <option>lxc.namespace.share.[namespace identifier]</option>
           </term>
           <listitem>

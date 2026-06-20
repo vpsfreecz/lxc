@@ -167,3 +167,9 @@ This adds `lxc.environment.empty_container`. When enabled, LXC keeps the
 conventional `container` environment variable present but gives it an empty
 value for both container start and attach. The default remains
 `container=lxc`.
+
+## tracing\_namespace
+
+This adds `lxc.namespace.clone.tracing`. On a kernel that implements the
+vpsAdminOS tracing-namespace interface, LXC can request a new tracing
+namespace at the child boundary used to start the container.

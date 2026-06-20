@@ -69,6 +69,10 @@
 
 lxc_log_define(start, lxc);
 
+#ifndef SYSLOG_ACTION_NEW_TRACING_NS
+#define SYSLOG_ACTION_NEW_TRACING_NS 12
+#endif
+
 extern void mod_all_rdeps(struct lxc_container *c, bool inc);
 static bool do_destroy_container(struct lxc_handler *handler);
 static int lxc_rmdir_onedev_wrapper(void *data);
@@ -112,6 +116,32 @@ static void lxc_put_nsfds(struct lxc_handler *handler)
 
 		close_prot_errno_disarm(handler->nsfd[i]);
 	}
+}
+
+static int lxc_request_tracing_namespace(const struct lxc_conf *conf)
+{
+	long ret;
+
+	if (!conf->ns_clone_tracing)
+		return 0;
+
+#if defined(SYS_syslog)
+	ret = syscall(SYS_syslog, SYSLOG_ACTION_NEW_TRACING_NS, NULL, 0);
+#elif defined(__NR_syslog)
+	ret = syscall(__NR_syslog, SYSLOG_ACTION_NEW_TRACING_NS, NULL, 0);
+#else
+	errno = ENOSYS;
+	ret = -1;
+#endif
+	if (ret < 0)
+		return log_error_errno(-1, errno, "Failed to request tracing namespace child boundary");
+
+	return 0;
+}
+
+static int lxc_request_child_namespaces(const struct lxc_conf *conf)
+{
+	return lxc_request_tracing_namespace(conf);
 }
 
 static int lxc_try_preserve_namespace(struct lxc_handler *handler,
@@ -1562,6 +1592,10 @@ static inline int do_share_ns(void *arg)
 		DEBUG("Inherited %s namespace", ns_info[i].proc_name);
 	}
 
+	ret = lxc_request_child_namespaces(handler->conf);
+	if (ret < 0)
+		return -1;
+
 	flags = handler->ns_on_clone_flags;
 	flags |= CLONE_PARENT;
 	handler->pid = lxc_raw_clone_cb(do_start, handler, CLONE_PIDFD | flags,
@@ -1709,7 +1743,17 @@ static int lxc_spawn(struct lxc_handler *handler)
 			}
 		}
 
-		/* Try to spawn directly into target cgroup. */
+		/*
+		 * Try to spawn directly into the target cgroup.
+		 *
+		 * The request is one-shot and namespace setup consumes it before
+		 * clone has exhausted all later failure paths. Rearm it before each
+		 * direct attempt so a fallback cannot lose the requested boundary.
+		 */
+		ret = lxc_request_child_namespaces(conf);
+		if (ret < 0)
+			goto out_delete_net;
+
 		handler->pid = lxc_clone3(&clone_args, CLONE_ARGS_SIZE_VER2);
 		if (handler->pid < 0) {
 			SYSTRACE("Failed to spawn container directly into target cgroup");
@@ -1717,6 +1761,10 @@ static int lxc_spawn(struct lxc_handler *handler)
 			/* Kernel might simply be too old for CLONE_INTO_CGROUP. */
 			resolve_cgroup_clone_flags(handler);
 			clone_args.flags = handler->clone_flags;
+
+			ret = lxc_request_child_namespaces(conf);
+			if (ret < 0)
+				goto out_delete_net;
 
 			handler->pid = lxc_clone3(&clone_args, CLONE_ARGS_SIZE_VER0);
 		} else if (cgroup_fd >= 0) {
@@ -1741,6 +1789,10 @@ static int lxc_spawn(struct lxc_handler *handler)
 		 * for pidfds. So let's special-case arm64 to not fail starting
 		 * containers.
 		 */
+			ret = lxc_request_child_namespaces(conf);
+			if (ret < 0)
+				goto out_delete_net;
+
 		#if defined(__aarch64__)
 			handler->pid = lxc_raw_legacy_clone(handler->clone_flags & ~CLONE_PIDFD, NULL);
 		#else

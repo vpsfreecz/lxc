@@ -558,6 +558,7 @@ struct lxc_conf {
 		int ns_clone;
 		int ns_keep;
 		char *ns_share[LXC_NS_MAX];
+		bool ns_clone_tracing;
 	};
 
 	/* init working directory */
