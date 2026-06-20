@@ -103,6 +103,7 @@ lxc_config_define(monitor_signal_pdeath);
 lxc_config_define(mount);
 lxc_config_define(mount_auto);
 lxc_config_define(mount_fstab);
+lxc_config_define(namespace_clone_tracing);
 lxc_config_define(namespace_clone);
 lxc_config_define(namespace_keep);
 lxc_config_define(time_offset_boot);
@@ -245,6 +246,7 @@ static struct lxc_config_t config_jump_table[] = {
 	{ "lxc.mount.auto",                 true,  set_config_mount_auto,                 get_config_mount_auto,                 clr_config_mount_auto,                 },
 	{ "lxc.mount.entry",                true,  set_config_mount,                      get_config_mount,                      clr_config_mount,                      },
 	{ "lxc.mount.fstab",                true,  set_config_mount_fstab,                get_config_mount_fstab,                clr_config_mount_fstab,                },
+	{ "lxc.namespace.clone.tracing",    true,  set_config_namespace_clone_tracing,    get_config_namespace_clone_tracing,    clr_config_namespace_clone_tracing,    },
 	{ "lxc.namespace.clone",            true,  set_config_namespace_clone,            get_config_namespace_clone,            clr_config_namespace_clone,            },
 	{ "lxc.namespace.keep",             true,  set_config_namespace_keep,             get_config_namespace_keep,             clr_config_namespace_keep,             },
 	{ "lxc.namespace.share.",           false, set_config_namespace_share,            get_config_namespace_share,            clr_config_namespace_share,            },
@@ -2962,6 +2964,12 @@ static int set_config_namespace_clone(const char *key, const char *value,
 	return 0;
 }
 
+static int set_config_namespace_clone_tracing(const char *key, const char *value,
+					      struct lxc_conf *lxc_conf, void *data)
+{
+	return set_config_bool_item(&lxc_conf->ns_clone_tracing, value, false);
+}
+
 static int set_config_namespace_keep(const char *key, const char *value,
 				     struct lxc_conf *lxc_conf, void *data)
 {
@@ -4741,6 +4749,12 @@ static int get_config_namespace_clone(const char *key, char *retv, int inlen,
 	return fulllen;
 }
 
+static int get_config_namespace_clone_tracing(const char *key, char *retv, int inlen,
+					      struct lxc_conf *c, void *data)
+{
+	return lxc_get_conf_bool(c, retv, inlen, c->ns_clone_tracing);
+}
+
 static int get_config_namespace_keep(const char *key, char *retv, int inlen,
 				     struct lxc_conf *c, void *data)
 {
@@ -5344,6 +5358,13 @@ static int clr_config_namespace_clone(const char *key,
 				      struct lxc_conf *lxc_conf, void *data)
 {
 	lxc_conf->ns_clone = 0;
+	return 0;
+}
+
+static int clr_config_namespace_clone_tracing(const char *key,
+					      struct lxc_conf *lxc_conf, void *data)
+{
+	lxc_conf->ns_clone_tracing = false;
 	return 0;
 }
 
@@ -6664,6 +6685,8 @@ int lxc_list_subkeys(struct lxc_conf *conf, const char *key, char *retv,
 		strprint(retv, inlen, "order\n");
 	} else if (strequal(key, "lxc.monitor")) {
 		strprint(retv, inlen, "unshare\n");
+	} else if (strequal(key, "lxc.namespace.clone")) {
+		strprint(retv, inlen, "tracing\n");
 	} else if (strequal(key, "lxc.keyring")) {
 		strprint(retv, inlen, "session\n");
 	} else {
