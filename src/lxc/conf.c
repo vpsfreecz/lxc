@@ -1367,6 +1367,7 @@ static int lxc_chroot(const struct lxc_rootfs *rootfs)
 static int lxc_pivot_root(const struct lxc_rootfs *rootfs)
 {
 	__do_close int fd_oldroot = -EBADF;
+	struct statfs stfs;
 	int ret;
 
 	fd_oldroot = open_at(-EBADF, "/", PROTECT_OPATH_DIRECTORY, PROTECT_LOOKUP_ABSOLUTE, 0);
@@ -1434,6 +1435,30 @@ static int lxc_pivot_root(const struct lxc_rootfs *rootfs)
 	ret = mount("", ".", "", MS_SHARED | MS_REC, NULL);
 	if (ret < 0)
 		return log_error_errno(-errno, errno, "Failed to turn new root mount tree into shared mount tree");
+
+	/*
+	 * vpsAdminOS uses /dev/.osctl-mount-helper to propagate mounts into a
+	 * running container. Keep /dev recursively slave because mount --move
+	 * cannot provide that contract inside a shared mount.
+	 */
+	ret = mount(NULL, "./dev", NULL, MS_SLAVE | MS_REC, NULL);
+	if (ret < 0)
+		return log_error_errno(-1, errno, "Failed to remount \"/dev\" to make it rslave");
+
+	/*
+	 * vpsAdminOS gives each container a separate bpffs. Keep that mount
+	 * private after making the root tree shared so systemd can move a new
+	 * PrivateBPF= instance over it without propagating the replacement.
+	 */
+	ret = statfs("./sys/fs/bpf", &stfs);
+	if (ret < 0 && errno != ENOENT)
+		return log_error_errno(-1, errno, "Failed to inspect container bpffs");
+
+	if (ret == 0 && stfs.f_type == BPF_FS_MAGIC) {
+		ret = mount(NULL, "./sys/fs/bpf", NULL, MS_PRIVATE | MS_REC, NULL);
+		if (ret < 0)
+			return log_error_errno(-1, errno, "Failed to make container bpffs private");
+	}
 
 	TRACE("Changed into new rootfs \"%s\"", rootfs->mount);
 	return 0;
@@ -4055,10 +4080,14 @@ int lxc_setup(struct lxc_handler *handler)
 int run_lxc_hooks(const char *name, char *hookname, struct lxc_conf *conf,
 		  char *argv[])
 {
-	int which;
+	__do_close int rootfs_hook_fd = -EBADF;
+	char rootfs_hook_fd_str[INTTYPE_TO_STRLEN(int)];
+	int ret = 0, which;
+	bool rootfs_env_set = false;
+	bool pass_rootfs = strequal(hookname, "mount");
 	struct string_entry *entry;
 
-	for (which = 0; which < NUM_LXC_HOOKS; which ++) {
+	for (which = 0; which < NUM_LXC_HOOKS; which++) {
 		if (strequal(hookname, lxchook_names[which]))
 			break;
 	}
@@ -4066,17 +4095,49 @@ int run_lxc_hooks(const char *name, char *hookname, struct lxc_conf *conf,
 	if (which >= NUM_LXC_HOOKS)
 		return -1;
 
+	if (pass_rootfs) {
+		if (conf->rootfs.dfd_mnt < 0)
+			return log_error(-1, "No mounted rootfs descriptor available for mount hook");
+
+		/*
+		 * vpsAdminOS mount hooks configure paths below mounts which exist only
+		 * in the container setup namespace. Give the hook a non-cloexec copy
+		 * of LXC's already-open rootfs descriptor so it can transfer the exact
+		 * mounted view to osctld without reopening a numeric process path.
+		 */
+		rootfs_hook_fd = fcntl(conf->rootfs.dfd_mnt, F_DUPFD, STDERR_FILENO + 1);
+		if (rootfs_hook_fd < 0)
+			return log_error_errno(-1, errno, "Failed to duplicate mounted rootfs descriptor for mount hook");
+
+		ret = strnprintf(rootfs_hook_fd_str, sizeof(rootfs_hook_fd_str), "%d", rootfs_hook_fd);
+		if (ret < 0)
+			return log_error_errno(-1, errno, "Failed to format mounted rootfs descriptor for mount hook");
+
+		ret = setenv("LXC_ROOTFS_MOUNT_FD", rootfs_hook_fd_str, 1);
+		if (ret < 0)
+			return log_error_errno(-1, errno, "Failed to export mounted rootfs descriptor for mount hook");
+
+		rootfs_env_set = true;
+	}
+
 	list_for_each_entry(entry, &conf->hooks[which], head) {
-		int ret;
 		char *hook = entry->val;
 
 		ret = run_script_argv(name, conf->hooks_version, "lxc", hook,
 				      hookname, argv);
-		if (ret < 0)
-			return -1;
+		if (ret < 0) {
+			ret = -1;
+			break;
+		}
 	}
 
-	return 0;
+	if (rootfs_env_set && unsetenv("LXC_ROOTFS_MOUNT_FD") < 0) {
+		SYSWARN("Failed to clear mounted rootfs descriptor environment after mount hook");
+		if (ret == 0)
+			ret = -1;
+	}
+
+	return ret;
 }
 
 int lxc_clear_config_caps(struct lxc_conf *c)
