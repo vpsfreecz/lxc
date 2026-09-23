@@ -389,12 +389,17 @@ static bool pidfd_setns_supported(struct attach_context *ctx,
 	 * special-case both CLONE_NEWUSER and CLONE_NEWTIME handling, let's
 	 * use CLONE_NEWTIME as gatekeeper.
 	 *
+	 * The probe runs in the calling process, so its own shape can defeat it.
 	 * An unprivileged attacher can legitimately get EPERM because this probe
-	 * does not include CLONE_NEWUSER. Accept that result only when the real
-	 * request will include CLONE_NEWUSER and let the kernel validate that
-	 * complete request in the right user-namespace domain. For every other
-	 * EPERM, use descriptor fallback instead of inferring pidfd support from
-	 * an ambiguous permission failure.
+	 * does not include CLONE_NEWUSER, and a multithreaded caller gets EUSERS
+	 * from the kernel's time-namespace install because that check counts the
+	 * caller's threads. Neither result says anything about the target or
+	 * about the real request, which is installed after the transient worker
+	 * is forked. Accept both only when the real request includes
+	 * CLONE_NEWUSER and let the kernel validate that complete request in the
+	 * right user-namespace domain. Every other failure still selects
+	 * descriptor fallback instead of inferring support from an ambiguous
+	 * error.
 	 */
 	if (ctx->init_pidfd >= 0) {
 		ret = setns(ctx->init_pidfd, CLONE_NEWTIME);
@@ -408,7 +413,8 @@ static bool pidfd_setns_supported(struct attach_context *ctx,
 	if (options->namespaces != -1)
 		ns_flags = options->namespaces;
 	supported = ret == 0 ||
-		    (saved_errno == EPERM && (ns_flags & CLONE_NEWUSER));
+		    ((saved_errno == EPERM || saved_errno == EUSERS) &&
+		     (ns_flags & CLONE_NEWUSER));
 	TRACE("Attaching to namespaces via pidfds %s",
 	      supported ? "supported" : "unsupported");
 	return supported;
